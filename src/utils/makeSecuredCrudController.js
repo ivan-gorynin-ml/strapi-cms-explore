@@ -1,0 +1,213 @@
+// /src/utils/makeSecuredCrudController.js
+'use strict';
+
+/**
+ * Factory that returns { find, update } controller actions
+ * with owner-based access control via user-provided functors.
+ *
+ * Works with Strapi v5 + (optionally) the Documents API.
+ */
+
+const USERS_UID = 'plugin::users-permissions.user';
+
+const getByPath = (obj, path) =>
+  path.split('.').reduce((o, k) => (o && o[k] != null ? o[k] : undefined), obj);
+
+const deleteByPath = (obj, path) => {
+  const parts = path.split('.');
+  const last = parts.pop();
+  const parent = parts.reduce((o, k) => (o && o[k] != null ? o[k] : undefined), obj);
+  if (parent && Object.prototype.hasOwnProperty.call(parent, last)) delete parent[last];
+};
+
+const isObject = (v) => typeof v === 'object' && v !== null;
+
+module.exports = function makeSecuredCrudController(
+  {
+    strapi,                                 // strapi instance
+    UID,
+    typeField,                              // pointing to type
+    ownerField = 'user',                    // pointing to user
+  }
+) {
+  if (!UID) throw new Error('makeSecuredCrudController: UID is required');
+
+  const extractOwnerId = (entity) => {
+    const rel = getByPath(entity, ownerField);
+    if (!rel) return undefined;
+    // relation could be id or populated object
+    return typeof rel === 'object' ? rel.id : rel;
+  };
+
+  const ensureAgentId = (ctx) => {
+    if (ctx.state?.agentId) return ctx.state.agentId;
+    const user = ctx.state?.user || ctx.user;
+    if (!user?.id) return ctx.unauthorized('Unauthorized');
+    return user.id;
+  };
+
+  const maybeOwnerFilter = (sanitizedQuery, agentId) => {
+    // Merge filters: {..., [ownerField]: { id: agentId }}
+    const current = sanitizedQuery.filters || {};
+    const ownerFilter = {};
+    // Support nested ownerField like "owner.user"
+    const pathParts = ownerField.split('.');
+    let cursor = ownerFilter;
+    for (let i = 0; i < pathParts.length - 1; i++) {
+      cursor[pathParts[i]] = {};
+      cursor = cursor[pathParts[i]];
+    }
+    cursor[pathParts[pathParts.length - 1]] = { id: agentId };
+
+    return {
+      ...sanitizedQuery,
+      filters: { ...current, ...ownerFilter },
+    };
+  };
+
+  const parseEmailParam = (id) => {
+    if (!id || typeof id !== 'string') return null;
+    const key = ownerField.split('.').pop(); // use last path segment for key in pattern
+    const re = new RegExp(`^${key}=([^]+)$`, 'i'); // accept url-encoded
+    const m = re.exec(id);
+    if (!m) return null;
+    try {
+      return decodeURIComponent(m[1]).trim();
+    } catch {
+      return m[1].trim();
+    }
+  };
+
+  return {
+    // ---------- FIND ----------
+    async find(ctx) {
+      await this.validateQuery(ctx);
+      const sanitizedQuery = await this.sanitizeQuery(ctx);
+
+      const agentId = ensureAgentId(ctx);
+
+      // Push an owner filter (fast path) then post-filter via hasReadAccess for extra safety
+      const userFilteredQuery = maybeOwnerFilter(sanitizedQuery, agentId);
+
+      const { results, pagination } = await strapi.service(UID).find(userFilteredQuery);
+
+      const sanitizedResults = await this.sanitizeOutput(results, ctx);
+      return this.transformResponse(sanitizedResults, { pagination });
+    },
+
+    // ---------- UPDATE ----------
+    async update(ctx) {
+      const { id } = ctx.params;
+
+      const agentId = ensureAgentId(ctx);
+
+      await this.validateQuery(ctx);
+      const sanitizedQuery = await this.sanitizeQuery(ctx);
+
+      const { body = {} } = ctx.request;
+      if (!isObject(body.data)) {
+        return ctx.badRequest('Missing "data" payload in the request body');
+      }
+
+      await this.validateInput(body.data, ctx);
+      const sanitizedInputData = await this.sanitizeInput(body.data, ctx);
+
+      // Never allow changing owner via payload
+      deleteByPath(sanitizedInputData, ownerField);
+
+      const emailFromParam = parseEmailParam(id);
+
+      // ---- Branch A: Normal numeric/uuid :id
+      if (!emailFromParam) {
+        // Fetch to check ownership
+        const existing = await strapi.entityService.findOne(UID, id, { populate: { [ownerField]: true } });
+        if (!existing) return this.transformResponse(null);
+
+        const ownerId = extractOwnerId(existing);
+        if (agentId !== ownerId) {
+          return ctx.forbidden('You do not have permission to modify this resource.');
+        }
+
+        // Prefer Documents API if available and we have documentId
+        const documentId = existing.documentId;
+        let updated;
+
+        if (documentId) {
+          updated = await strapi.documents(UID).update({
+            ...sanitizedQuery,
+            documentId,
+            data: sanitizedInputData,
+          });
+        } else {
+          updated = await strapi.service(UID).update(id, {
+            ...sanitizedQuery,
+            data: sanitizedInputData,
+          });
+        }
+
+        const sanitized = await this.sanitizeOutput(updated, ctx);
+        return this.transformResponse(sanitized);
+      }
+
+      // ---- Branch B: id is "ownerField=<email>"
+      const email = emailFromParam.toLowerCase();
+
+      const users = await strapi.entityService.findMany(USERS_UID, {
+        filters: { email },
+        limit: 1,
+        populate: { [typeField]: true },
+      });
+
+      if (!users?.length) {
+        ctx.throw(404, `Owner with email "${email}" was not found.`);
+      }
+
+      const ownerUser = users[0];
+
+      if (agentId !== ownerUser.id) {
+        return ctx.forbidden('You do not have permission to modify this resource.');
+      }
+
+      // Find an existing record for this owner
+      const { results } = await strapi.service(UID).find({
+        filters: { [ownerField]: { id: ownerUser.id } },
+        limit: 1,
+      });
+
+      let targetDocumentId = results?.[0]?.documentId;
+
+      // Create missing record if configured
+      if (!results?.length) {
+        const created = await strapi.documents(UID).create({
+            data: { [ownerField]: ownerUser.id },
+            status: 'published',
+          });
+          targetDocumentId = created?.documentId;
+      }
+
+      if (!targetDocumentId) {
+        ctx.throw(500, 'Unable to resolve target document for the specified owner.');
+      }
+
+      // Perform the update
+      let updated;
+      if (targetDocumentId) {
+        updated = await strapi.documents(UID).update({
+          ...sanitizedQuery,
+          documentId: targetDocumentId,
+          data: sanitizedInputData,
+        });
+      } else if (results?.[0]?.id) {
+        updated = await strapi.service(UID).update(results[0].id, {
+          ...sanitizedQuery,
+          data: sanitizedInputData,
+        });
+      } else {
+        ctx.throw(404, 'Target resource for the specified owner was not found.');
+      }
+
+      const sanitized = await this.sanitizeOutput(updated, ctx);
+      return this.transformResponse(sanitized);
+    },
+  };
+}
