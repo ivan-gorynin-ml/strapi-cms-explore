@@ -75,6 +75,18 @@
     "profileComplete": {
       "type": "boolean",
       "default": false
+    },
+    "account_holder_profile": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::account-holder-profile.account-holder-profile",
+      "mappedBy": "user"
+    },
+    "user_general_info": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::user-general-info.user-general-info",
+      "inversedBy": "user"
     }
   }
 }

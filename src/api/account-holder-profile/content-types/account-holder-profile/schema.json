@@ -1,0 +1,39 @@
+{
+  "kind": "collectionType",
+  "collectionName": "account_holder_profiles",
+  "info": {
+    "singularName": "account-holder-profile",
+    "pluralName": "account-holder-profiles",
+    "displayName": "AccountHolderProfile"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "user": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "plugin::users-permissions.user",
+      "inversedBy": "account_holder_profile"
+    },
+    "birthDate": {
+      "type": "date"
+    },
+    "birthPlace": {
+      "type": "string"
+    },
+    "nationality": {
+      "type": "string"
+    },
+    "maritalStatus": {
+      "type": "string"
+    },
+    "profession": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    }
+  }
+}

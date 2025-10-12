@@ -430,6 +430,78 @@ export interface AdminUser extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface ApiAccountHolderProfileAccountHolderProfile
+  extends Struct.CollectionTypeSchema {
+  collectionName: 'account_holder_profiles';
+  info: {
+    displayName: 'AccountHolderProfile';
+    pluralName: 'account-holder-profiles';
+    singularName: 'account-holder-profile';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    birthDate: Schema.Attribute.Date;
+    birthPlace: Schema.Attribute.String;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::account-holder-profile.account-holder-profile'
+    > &
+      Schema.Attribute.Private;
+    maritalStatus: Schema.Attribute.String;
+    nationality: Schema.Attribute.String;
+    phone: Schema.Attribute.String;
+    profession: Schema.Attribute.String;
+    publishedAt: Schema.Attribute.DateTime;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    user: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::users-permissions.user'
+    >;
+  };
+}
+
+export interface ApiUserGeneralInfoUserGeneralInfo
+  extends Struct.CollectionTypeSchema {
+  collectionName: 'user_general_infos';
+  info: {
+    displayName: 'UserGeneralInfo';
+    pluralName: 'user-general-infos';
+    singularName: 'user-general-info';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    firstName: Schema.Attribute.String;
+    lastName: Schema.Attribute.String;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::user-general-info.user-general-info'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    user: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::users-permissions.user'
+    >;
+  };
+}
+
 export interface PluginContentReleasesRelease
   extends Struct.CollectionTypeSchema {
   collectionName: 'strapi_releases';
@@ -885,9 +957,12 @@ export interface PluginUsersPermissionsUser
   };
   options: {
     draftAndPublish: false;
-    timestamps: true;
   };
   attributes: {
+    account_holder_profile: Schema.Attribute.Relation<
+      'oneToOne',
+      'api::account-holder-profile.account-holder-profile'
+    >;
     blocked: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
     confirmationToken: Schema.Attribute.String & Schema.Attribute.Private;
     confirmed: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
@@ -924,6 +999,10 @@ export interface PluginUsersPermissionsUser
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
+    user_general_info: Schema.Attribute.Relation<
+      'oneToOne',
+      'api::user-general-info.user-general-info'
+    >;
     username: Schema.Attribute.String &
       Schema.Attribute.Required &
       Schema.Attribute.Unique &
@@ -944,6 +1023,8 @@ declare module '@strapi/strapi' {
       'admin::transfer-token': AdminTransferToken;
       'admin::transfer-token-permission': AdminTransferTokenPermission;
       'admin::user': AdminUser;
+      'api::account-holder-profile.account-holder-profile': ApiAccountHolderProfileAccountHolderProfile;
+      'api::user-general-info.user-general-info': ApiUserGeneralInfoUserGeneralInfo;
       'plugin::content-releases.release': PluginContentReleasesRelease;
       'plugin::content-releases.release-action': PluginContentReleasesReleaseAction;
       'plugin::i18n.locale': PluginI18NLocale;

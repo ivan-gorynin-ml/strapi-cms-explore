@@ -1,0 +1,27 @@
+{
+  "kind": "collectionType",
+  "collectionName": "user_general_infos",
+  "info": {
+    "singularName": "user-general-info",
+    "pluralName": "user-general-infos",
+    "displayName": "UserGeneralInfo"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "firstName": {
+      "type": "string"
+    },
+    "lastName": {
+      "type": "string"
+    },
+    "user": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "plugin::users-permissions.user",
+      "mappedBy": "user_general_info"
+    }
+  }
+}
