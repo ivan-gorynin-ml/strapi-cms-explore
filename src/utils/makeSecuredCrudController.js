@@ -28,6 +28,7 @@ module.exports = function makeSecuredCrudController(
     UID,
     typeField,                              // pointing to type
     ownerField = 'user',                    // pointing to user
+    ownerHasMany = false,                    // true if ownerField is a collection
   }
 ) {
   if (!UID) throw new Error('makeSecuredCrudController: UID is required');
@@ -109,11 +110,30 @@ module.exports = function makeSecuredCrudController(
         return ctx.badRequest('Missing "data" payload in the request body');
       }
 
+      // Extract ids if ownerHasMany and data is an array
+      let extractedIds = [];
+      if (ownerHasMany && Array.isArray(body.data)) {
+        extractedIds = body.data.map(item => item?.id || null);
+        // Remove id from each element before validation
+        body.data = body.data.map(item => {
+          if (item && typeof item === 'object' && 'id' in item) {
+            const { id, ...rest } = item;
+            return rest;
+          }
+          return item;
+        });
+      }
+
       await this.validateInput(body.data, ctx);
       const sanitizedInputData = await this.sanitizeInput(body.data, ctx);
 
       // Never allow changing owner via payload
-      deleteByPath(sanitizedInputData, ownerField);
+      if (ownerHasMany && Array.isArray(sanitizedInputData)) {
+        // Remove owner field from each element in the array
+        sanitizedInputData.forEach(item => deleteByPath(item, ownerField));
+      } else {
+        deleteByPath(sanitizedInputData, ownerField);
+      }
 
       const emailFromParam = parseEmailParam(id);
 
@@ -168,6 +188,65 @@ module.exports = function makeSecuredCrudController(
         return ctx.forbidden('You do not have permission to modify this resource.');
       }
 
+      // Handle ownerHasMany case: expect array of partial updates
+      if (ownerHasMany) {
+        if (!Array.isArray(sanitizedInputData)) {
+          return ctx.badRequest('Data must be an array of updates');
+        }
+
+        const processedResults = [];
+
+        for (let i = 0; i < sanitizedInputData.length; i++) {
+          const item = sanitizedInputData[i];
+          const itemId = extractedIds[i];
+
+          if (itemId) {
+            // Update existing record: find by id and verify ownership
+            const existing = await strapi.entityService.findOne(UID, itemId, {
+              populate: { [ownerField]: true },
+            });
+
+            if (!existing) {
+              ctx.throw(404, `Record with id ${itemId} not found`);
+            }
+
+            // Verify ownership
+            const itemOwnerId = extractOwnerId(existing);
+            if (itemOwnerId !== ownerUser.id) {
+              return ctx.forbidden(`You do not own the record with id ${itemId}`);
+            }
+
+            // Update the record (id already removed during extraction)
+            const documentId = existing.documentId;
+            let updated;
+            if (documentId) {
+              updated = await strapi.documents(UID).update({
+                ...sanitizedQuery,
+                documentId,
+                data: item,
+              });
+            } else {
+              updated = await strapi.service(UID).update(itemId, {
+                ...sanitizedQuery,
+                data: item,
+              });
+            }
+            processedResults.push(updated);
+          } else {
+            // Create new record: no id means this is a new element
+            const created = await strapi.documents(UID).create({
+              data: { ...item, [ownerField]: ownerUser.id },
+              status: 'published',
+            });
+            processedResults.push(created);
+          }
+        }
+
+        const sanitized = await this.sanitizeOutput(processedResults, ctx);
+        return this.transformResponse(sanitized);
+      }
+
+      // Original single-record logic for ownerHasMany=false
       // Find an existing record for this owner
       const { results } = await strapi.service(UID).find({
         filters: { [ownerField]: { id: ownerUser.id } },
