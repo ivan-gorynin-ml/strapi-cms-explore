@@ -1,0 +1,36 @@
+{
+  "kind": "collectionType",
+  "collectionName": "emergency_contacts",
+  "info": {
+    "singularName": "emergency-contact",
+    "pluralName": "emergency-contacts",
+    "displayName": "EmergencyContact"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "user": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::users-permissions.user",
+      "inversedBy": "emergency_contacts"
+    },
+    "firstName": {
+      "type": "string"
+    },
+    "lastName": {
+      "type": "string"
+    },
+    "relationship": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "email": {
+      "type": "email"
+    }
+  }
+}

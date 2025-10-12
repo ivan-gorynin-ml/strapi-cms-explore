@@ -64,8 +64,8 @@ module.exports = {
    */
   bootstrap(/*{ strapi }*/) {
     // Grant Find and Update permissions to the Authenticated role
-    const UID = 'api::user-general-info.user-general-info';
     const ACTIONS = ['find', 'update'];
-    grantAuthenticatedPermissions(strapi, UID, ACTIONS);
+    grantAuthenticatedPermissions(strapi, 'api::user-general-info.user-general-info', ACTIONS);
+    grantAuthenticatedPermissions(strapi, 'api::emergency-contact.emergency-contact', ACTIONS);
   },
 };

@@ -468,6 +468,43 @@ export interface ApiAccountHolderProfileAccountHolderProfile
   };
 }
 
+export interface ApiEmergencyContactEmergencyContact
+  extends Struct.CollectionTypeSchema {
+  collectionName: 'emergency_contacts';
+  info: {
+    displayName: 'EmergencyContact';
+    pluralName: 'emergency-contacts';
+    singularName: 'emergency-contact';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    email: Schema.Attribute.Email;
+    firstName: Schema.Attribute.String;
+    lastName: Schema.Attribute.String;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::emergency-contact.emergency-contact'
+    > &
+      Schema.Attribute.Private;
+    phone: Schema.Attribute.String;
+    publishedAt: Schema.Attribute.DateTime;
+    relationship: Schema.Attribute.String;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    user: Schema.Attribute.Relation<
+      'manyToOne',
+      'plugin::users-permissions.user'
+    >;
+  };
+}
+
 export interface ApiUserGeneralInfoUserGeneralInfo
   extends Struct.CollectionTypeSchema {
   collectionName: 'user_general_infos';
@@ -974,6 +1011,10 @@ export interface PluginUsersPermissionsUser
       Schema.Attribute.SetMinMaxLength<{
         minLength: 6;
       }>;
+    emergency_contacts: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::emergency-contact.emergency-contact'
+    >;
     firstName: Schema.Attribute.String;
     lastName: Schema.Attribute.String;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
@@ -1024,6 +1065,7 @@ declare module '@strapi/strapi' {
       'admin::transfer-token-permission': AdminTransferTokenPermission;
       'admin::user': AdminUser;
       'api::account-holder-profile.account-holder-profile': ApiAccountHolderProfileAccountHolderProfile;
+      'api::emergency-contact.emergency-contact': ApiEmergencyContactEmergencyContact;
       'api::user-general-info.user-general-info': ApiUserGeneralInfoUserGeneralInfo;
       'plugin::content-releases.release': PluginContentReleasesRelease;
       'plugin::content-releases.release-action': PluginContentReleasesReleaseAction;
