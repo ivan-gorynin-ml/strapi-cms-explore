@@ -350,45 +350,141 @@ module.exports = function makeProfileFieldController(
 
       const { id } = ctx.params;
 
-      // Validate that id is a direct numeric/uuid id (not email-based)
-      if (!id || typeof id !== 'string' || id.includes('=')) {
-        return ctx.badRequest('Delete requires a valid record ID.');
-      }
-
       const agentId = ensureAgentId(ctx);
 
-      // Fetch the record to check ownership - populate profile and user within profile
-      const existing = await strapi.entityService.findOne(UID, id, {
-        populate: {
-          [ownerField]: {
-            populate: { user: true }
+      const emailFromParam = parseEmailParam(id, 'user');
+
+      // ---- Branch A: Normal numeric/uuid :id
+      if (!emailFromParam) {
+        // Fetch the record to check ownership - populate profile and user within profile
+        const existing = await strapi.entityService.findOne(UID, id, {
+          populate: {
+            [ownerField]: {
+              populate: { user: true }
+            }
           }
+        });
+
+        if (!existing) {
+          return ctx.notFound('Record not found.');
         }
+
+        // Check ownership using the same pattern as findOne
+        const ownerId = extractOwnerId(existing, ownerField);
+        if (agentId !== ownerId) {
+          return ctx.forbidden('You do not have permission to delete this resource.');
+        }
+
+        // Delete the record - prefer Documents API if available
+        const documentId = existing.documentId;
+        let deleted;
+
+        if (documentId) {
+          deleted = await strapi.documents(UID).delete({
+            documentId,
+          });
+        } else {
+          deleted = await strapi.service(UID).delete(id);
+        }
+
+        const sanitized = await this.sanitizeOutput(deleted, ctx);
+        return this.transformResponse(sanitized);
+      }
+
+      // ---- Branch B: id is "user=<email>"
+      const email = emailFromParam.toLowerCase();
+
+      const users = await strapi.entityService.findMany(USERS_UID, {
+        filters: { email },
+        limit: 1,
+        populate: {
+          profile: {
+            populate: { [typeField]: true }
+          }
+        },
       });
 
-      if (!existing) {
-        return ctx.notFound('Record not found.');
+      if (!users?.length) {
+        ctx.throw(404, `Owner with email "${email}" was not found.`);
       }
 
-      // Check ownership using the same pattern as findOne
-      const ownerId = extractOwnerId(existing, ownerField);
-      if (agentId !== ownerId) {
-        return ctx.forbidden('You do not have permission to delete this resource.');
+      const ownerUser = users[0];
+
+      if (agentId !== ownerUser.id) {
+        return ctx.forbidden('You do not have permission to delete resources for this user.');
       }
 
-      // Delete the record - prefer Documents API if available
-      const documentId = existing.documentId;
-      let deleted;
+      // Ensure the user has a profile
+      const profileId = await ensureProfileId(strapi, ownerUser);
 
-      if (documentId) {
-        deleted = await strapi.documents(UID).delete({
-          documentId,
+      // Get the list of IDs to delete from the request body
+      const { body = {} } = ctx.request;
+      
+      if (!body.data || !Array.isArray(body.data)) {
+        return ctx.badRequest('Request body must contain a "data" array with IDs to delete.');
+      }
+
+      const idsToDelete = body.data.filter(item => {
+        // Support both plain ID strings/numbers and objects with id property
+        if (typeof item === 'string' || typeof item === 'number') {
+          return true;
+        }
+        if (isObject(item) && item.id) {
+          return true;
+        }
+        return false;
+      }).map(item => {
+        if (isObject(item) && item.id) {
+          return item.id;
+        }
+        return item;
+      });
+
+      if (!idsToDelete.length) {
+        return ctx.badRequest('No valid IDs found in request body data array.');
+      }
+
+      // Verify ownership of all records before deleting any
+      const recordsToDelete = [];
+      for (const itemId of idsToDelete) {
+        const existing = await strapi.entityService.findOne(UID, itemId, {
+          populate: {
+            [ownerField]: {
+              populate: { user: true }
+            }
+          },
         });
-      } else {
-        deleted = await strapi.service(UID).delete(id);
+
+        if (!existing) {
+          ctx.throw(404, `Record with id ${itemId} not found.`);
+        }
+
+        // Verify ownership (check against user via profile)
+        const itemOwnerId = extractOwnerId(existing, ownerField);
+        if (itemOwnerId !== ownerUser.id) {
+          return ctx.forbidden(`You do not own the record with id ${itemId}.`);
+        }
+
+        recordsToDelete.push(existing);
       }
 
-      const sanitized = await this.sanitizeOutput(deleted, ctx);
+      // All permissions verified - proceed with deletions
+      const deletedResults = [];
+      for (const record of recordsToDelete) {
+        const documentId = record.documentId;
+        let deleted;
+
+        if (documentId) {
+          deleted = await strapi.documents(UID).delete({
+            documentId,
+          });
+        } else {
+          deleted = await strapi.service(UID).delete(record.id);
+        }
+        deletedResults.push(deleted);
+      }
+
+      const sanitized = await this.sanitizeOutput(deletedResults, ctx);
       return this.transformResponse(sanitized);
     },
   };
