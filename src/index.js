@@ -1,6 +1,6 @@
 'use strict';
 
-async function grantAuthenticatedPermissions(strapi, uid, actions) {
+async function setAuthenticatedPermissions(strapi, uid, actions) {
   // 1) Get the Authenticated role
   const authenticatedRole = await strapi.db
     .query('plugin::users-permissions.role')
@@ -11,7 +11,7 @@ async function grantAuthenticatedPermissions(strapi, uid, actions) {
     return;
   }
 
-  // 2) Upsert the permissions
+  // 2) Upsert the permissions for the specified actions
   for (const action of actions) {
     const actionKey = `${uid}.${action}`;
 
@@ -21,17 +21,7 @@ async function grantAuthenticatedPermissions(strapi, uid, actions) {
         where: { action: actionKey, role: authenticatedRole.id },
       });
 
-    if (existing) {
-      if (!existing.enabled) {
-        await strapi.db
-          .query('plugin::users-permissions.permission')
-          .update({
-            where: { id: existing.id },
-            data: { enabled: true },
-          });
-        strapi.log.info(`[permissions] Enabled ${actionKey} for Authenticated`);
-      }
-    } else {
+    if (!existing) {
       await strapi.db
         .query('plugin::users-permissions.permission')
         .create({
@@ -42,6 +32,30 @@ async function grantAuthenticatedPermissions(strapi, uid, actions) {
           },
         });
       strapi.log.info(`[permissions] Created+enabled ${actionKey} for Authenticated`);
+    }
+  }
+
+  // 3) Disable permissions that are enabled but not in the actions list
+  const allPermissions = await strapi.db
+    .query('plugin::users-permissions.permission')
+    .findMany({
+      where: { role: authenticatedRole.id },
+    });
+
+  const actionKeys = actions.map(action => `${uid}.${action}`);
+
+  for (const permission of allPermissions) {
+    // Check if this permission belongs to the current uid
+    if (permission.action.startsWith(`${uid}.`)) {
+      // If it's enabled but not in our actions list, disable it
+      if (!actionKeys.includes(permission.action)) {
+        await strapi.db
+          .query('plugin::users-permissions.permission')
+          .delete({
+            where: { id: permission.id },
+          });
+        strapi.log.info(`[permissions] Disabled ${permission.action} for Authenticated (not in allowed actions)`);
+      }
     }
   }
 }
@@ -64,8 +78,10 @@ module.exports = {
    */
   bootstrap(/*{ strapi }*/) {
     // Grant Find and Update permissions to the Authenticated role
-    const ACTIONS = ['find', 'update'];
-    grantAuthenticatedPermissions(strapi, 'api::user-general-info.user-general-info', ACTIONS);
-    grantAuthenticatedPermissions(strapi, 'api::emergency-contact.emergency-contact', ACTIONS);
+    const FIND_ACTIONS = ['find', 'findOne'];
+    const FIND_UPDATE_ACTIONS = [...FIND_ACTIONS, 'update'];
+
+    setAuthenticatedPermissions(strapi, 'api::user-general-info.user-general-info', FIND_UPDATE_ACTIONS);
+    setAuthenticatedPermissions(strapi, 'api::emergency-contact.emergency-contact', FIND_UPDATE_ACTIONS);
   },
 };
