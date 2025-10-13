@@ -8,6 +8,8 @@
  * Works with Strapi v5 + (optionally) the Documents API.
  */
 
+const { ensureAgentId, maybeOwnerFilter } = require('./authHelpers');
+
 const USERS_UID = 'plugin::users-permissions.user';
 const PROFILES_UID = 'api::profile.profile';
 
@@ -82,32 +84,6 @@ module.exports = function makeProfileFieldController(
     return undefined;
   };
 
-  const ensureAgentId = (ctx) => {
-    if (ctx.state?.agentId) return ctx.state.agentId;
-    const user = ctx.state?.user || ctx.user;
-    if (!user?.id) return ctx.unauthorized('Unauthorized');
-    return user.id;
-  };
-
-  const maybeOwnerFilter = (sanitizedQuery, agentId) => {
-    // Merge filters: {..., [ownerField]: { id: agentId }}
-    const current = sanitizedQuery.filters || {};
-    const ownerFilter = {};
-    // Support nested ownerField like "owner.user"
-    const pathParts = ownerField.split('.');
-    let cursor = ownerFilter;
-    for (let i = 0; i < pathParts.length - 1; i++) {
-      cursor[pathParts[i]] = {};
-      cursor = cursor[pathParts[i]];
-    }
-    cursor[pathParts[pathParts.length - 1]] = { id: agentId };
-
-    return {
-      ...sanitizedQuery,
-      filters: { ...current, ...ownerFilter },
-    };
-  };
-
   const parseEmailParam = (id) => {
     if (!id || typeof id !== 'string') return null;
     const re = new RegExp(`^user=([^]+)$`, 'i'); // accept url-encoded
@@ -129,7 +105,7 @@ module.exports = function makeProfileFieldController(
       const agentId = ensureAgentId(ctx);
 
       // Push an owner filter (fast path) then post-filter via hasReadAccess for extra safety
-      const userFilteredQuery = maybeOwnerFilter(sanitizedQuery, agentId);
+      const userFilteredQuery = maybeOwnerFilter(sanitizedQuery, agentId, ownerField);
 
       const { results, pagination } = await strapi.service(UID).find(userFilteredQuery);
 
