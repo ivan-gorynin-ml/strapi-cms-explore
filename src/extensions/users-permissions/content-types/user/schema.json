@@ -93,6 +93,12 @@
       "relation": "oneToMany",
       "target": "api::emergency-contact.emergency-contact",
       "mappedBy": "user"
+    },
+    "profile": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::profile.profile",
+      "mappedBy": "user"
     }
   }
 }

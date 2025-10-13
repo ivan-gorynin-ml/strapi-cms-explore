@@ -505,6 +505,37 @@ export interface ApiEmergencyContactEmergencyContact
   };
 }
 
+export interface ApiProfileProfile extends Struct.CollectionTypeSchema {
+  collectionName: 'profiles';
+  info: {
+    displayName: 'Profile';
+    pluralName: 'profiles';
+    singularName: 'profile';
+  };
+  options: {
+    draftAndPublish: true;
+  };
+  attributes: {
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::profile.profile'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    user: Schema.Attribute.Relation<
+      'oneToOne',
+      'plugin::users-permissions.user'
+    >;
+  };
+}
+
 export interface ApiUserGeneralInfoUserGeneralInfo
   extends Struct.CollectionTypeSchema {
   collectionName: 'user_general_infos';
@@ -1028,6 +1059,7 @@ export interface PluginUsersPermissionsUser
       Schema.Attribute.SetMinMaxLength<{
         minLength: 6;
       }>;
+    profile: Schema.Attribute.Relation<'oneToOne', 'api::profile.profile'>;
     profileComplete: Schema.Attribute.Boolean &
       Schema.Attribute.DefaultTo<false>;
     provider: Schema.Attribute.String;
@@ -1066,6 +1098,7 @@ declare module '@strapi/strapi' {
       'admin::user': AdminUser;
       'api::account-holder-profile.account-holder-profile': ApiAccountHolderProfileAccountHolderProfile;
       'api::emergency-contact.emergency-contact': ApiEmergencyContactEmergencyContact;
+      'api::profile.profile': ApiProfileProfile;
       'api::user-general-info.user-general-info': ApiUserGeneralInfoUserGeneralInfo;
       'plugin::content-releases.release': PluginContentReleasesRelease;
       'plugin::content-releases.release-action': PluginContentReleasesReleaseAction;
