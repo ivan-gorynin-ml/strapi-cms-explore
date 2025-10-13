@@ -2,19 +2,22 @@
 
 ## Overview
 
-This API implements a user-centric data model with strong ownership guarantees. Users can only access and modify their own data through authenticated endpoints. The architecture centers around two main content types: **Profile** and **Person**, which form a chain of one-to-one relationships with the authentication system.
+This API implements a user-centric data model with strong ownership guarantees. Users can only access and modify their own data through authenticated endpoints. The architecture centers around three main content types: **Profile**, **Person**, and **IdentityDocument**, which form a network of one-to-one relationships with the authentication system.
 
 ## Data Model Relationships
 
 ### Relationship Chain
 ```
-User (auth) ←→ Profile ←→ Person
+                    ┌─→ Person
+User (auth) ←→ Profile
+                    └─→ IdentityDocument
 ```
 
 All relationships are **one-to-one**:
 - Each **User** has exactly one **Profile** (created automatically on first access)
 - Each **Profile** has at most one **Person** record containing personal information
-- Access control is enforced through the User → Profile → Person chain
+- Each **Profile** has at most one **IdentityDocument** record containing identity information
+- Access control is enforced through the User → Profile chain to both Person and IdentityDocument
 
 ### Content Type Schemas
 
@@ -24,11 +27,12 @@ A lightweight connector entity that bridges authentication and user data.
 **Fields:**
 - `user` (relation): One-to-one with `plugin::users-permissions.user`
 - `person` (relation): One-to-one with `api::person.person`
+- `identity_document` (relation): One-to-one with `api::identity-document.identity-document`
 
 **Purpose:**
 - Acts as an ownership anchor for all user-related data
 - Created automatically when a user first accesses their profile
-- Provides a stable reference point for related entities
+- Provides a stable reference point for related entities (person, identity documents, etc.)
 
 #### Person
 Stores detailed personal and contact information.
@@ -47,6 +51,22 @@ Stores detailed personal and contact information.
 - `profession` (string): Occupation
 - `phone` (string): Phone number
 - `profile` (relation): One-to-one with `api::profile.profile` (owner reference)
+
+#### IdentityDocument
+Stores government-issued identification document information.
+
+**Fields:**
+- `type` (string): Document type (e.g., "passport", "driver_license", "national_id")
+- `number` (string): Document identification number
+- `issueDate` (date): Date when the document was issued
+- `expiryDate` (date): Document expiration date
+- `issuingAuthority` (string): Authority/organization that issued the document
+- `profile` (relation): One-to-one with `api::profile.profile` (owner reference)
+
+**Purpose:**
+- Stores official identification information securely
+- Used for identity verification and compliance purposes
+- Linked to profile for ownership and access control
 
 ## Authentication & Authorization
 
@@ -80,14 +100,14 @@ Authorization: Bearer <jwt_token>
 #### Query Parameters
 - **populate[profile][populate]=*** : Deep population that includes:
   - The user's profile
-  - All relations within the profile (person, etc.)
+  - All relations within the profile (person, identity_document, etc.)
 
 #### What Happens Internally
 
 1. **Token Validation**: The JWT bearer token is validated
 2. **User Identification**: `ctx.state.user` is extracted from the token
 3. **Data Retrieval**: Fetches the user with profile and all nested relations
-4. **Automatic Population**: Strapi populates the profile and its nested person relation
+4. **Automatic Population**: Strapi populates the profile and its nested relations (person, identity_document)
 5. **Response Sanitization**: Sensitive fields (password, tokens) are automatically removed
 
 #### Response Structure
@@ -129,6 +149,18 @@ Authorization: Bearer <jwt_token>
       "createdAt": "2025-10-01T10:05:00.000Z",
       "updatedAt": "2025-10-13T14:30:00.000Z",
       "publishedAt": "2025-10-01T10:05:00.000Z"
+    },
+    "identity_document": {
+      "id": 234,
+      "documentId": "jkl234mno",
+      "type": "passport",
+      "number": "P12345678",
+      "issueDate": "2020-01-15",
+      "expiryDate": "2030-01-15",
+      "issuingAuthority": "U.S. Department of State",
+      "createdAt": "2025-10-01T10:10:00.000Z",
+      "updatedAt": "2025-10-13T14:30:00.000Z",
+      "publishedAt": "2025-10-01T10:10:00.000Z"
     }
   }
 }
@@ -137,10 +169,10 @@ Authorization: Bearer <jwt_token>
 #### Key Advantages
 
 1. **No Email Required**: Works directly from the JWT token without needing to know the user's email
-2. **Single Request**: Gets user, profile, and person data in one API call
+2. **Single Request**: Gets user, profile, person, and identity document data in one API call
 3. **Standard Endpoint**: Uses Strapi's built-in users-permissions `/me` endpoint
 4. **Automatic Ownership**: No ownership checks needed—always returns the authenticated user's data
-5. **Null Safety**: If profile or person don't exist yet, they'll be null in the response
+5. **Null Safety**: If profile, person, or identity_document don't exist yet, they'll be null in the response
 
 #### Use Cases
 
@@ -157,12 +189,18 @@ const userData = await response.json();
 if (userData.profile?.person) {
   console.log(`Welcome ${userData.profile.person.firstName} ${userData.profile.person.lastName}`);
 }
+
+if (userData.profile?.identity_document) {
+  console.log(`Document: ${userData.profile.identity_document.type} - ${userData.profile.identity_document.number}`);
+}
 ```
 
 **Conditional Rendering**: Check if profile is complete
 ```javascript
 const hasPersonalInfo = userData.profile?.person !== null;
-if (!hasPersonalInfo) {
+const hasIdentityDocument = userData.profile?.identity_document !== null;
+
+if (!hasPersonalInfo || !hasIdentityDocument) {
   // Redirect to profile completion page
 }
 ```
@@ -217,7 +255,7 @@ Authorization: Bearer <jwt_token>
 - **Email-based ID**: `user=john.doe@mail.com`
   - The API accepts email addresses as identifiers using the format `user=<email>`
   - The authenticated user must match the requested email
-- **populate=*** : Populates all relations (user, person)
+- **populate=*** : Populates all relations (user, person, identity_document)
 
 #### What Happens Internally
 
@@ -275,6 +313,22 @@ Authorization: Bearer <jwt_token>
             "publishedAt": "2025-10-01T10:05:00.000Z"
           }
         }
+      },
+      "identity_document": {
+        "data": {
+          "id": 234,
+          "documentId": "jkl234mno",
+          "attributes": {
+            "type": "passport",
+            "number": "P12345678",
+            "issueDate": "2020-01-15",
+            "expiryDate": "2030-01-15",
+            "issuingAuthority": "U.S. Department of State",
+            "createdAt": "2025-10-01T10:10:00.000Z",
+            "updatedAt": "2025-10-13T14:30:00.000Z",
+            "publishedAt": "2025-10-01T10:10:00.000Z"
+          }
+        }
       }
     }
   },
@@ -286,7 +340,7 @@ Authorization: Bearer <jwt_token>
 - **Automatic Profile Creation**: If the user doesn't have a profile, it's created on-the-fly
 - **Flexible Identifiers**: Supports both numeric IDs and email-based lookups
 - **Secure by Default**: Users can only retrieve their own profile
-- **Null Safety**: Returns `null` if person hasn't been created yet
+- **Null Safety**: Returns `null` if person or identity_document haven't been created yet
 
 ## Person API
 
