@@ -137,6 +137,85 @@ module.exports = function makeProfileFieldController(
       return this.transformResponse(sanitizedResults, { pagination });
     },
 
+    // ---------- FIND ONE ----------
+    async findOne(ctx) {
+      if (ownerHasMany) {
+        return ctx.badRequest('Invalid request.');
+      }
+      
+      const { id } = ctx.params;
+
+      const agentId = ensureAgentId(ctx);
+
+      await this.validateQuery(ctx);
+      const sanitizedQuery = await this.sanitizeQuery(ctx);
+
+      const emailFromParam = parseEmailParam(id);
+
+      // ---- Branch A: Normal numeric/uuid :id
+      if (!emailFromParam) {
+        // Fetch to check ownership - populate profile and user within profile
+        const existing = await strapi.entityService.findOne(UID, id, { 
+          ...sanitizedQuery,
+          populate: { 
+            [ownerField]: { 
+              populate: { user: true } 
+            } 
+          } 
+        });
+
+        if (!existing) return this.transformResponse(null);
+
+        const ownerId = extractOwnerId(existing);
+        if (agentId !== ownerId) {
+          return ctx.forbidden('You do not have permission to access this resource.');
+        }
+
+        const sanitized = await this.sanitizeOutput(existing, ctx);
+        return this.transformResponse(sanitized);
+      }
+
+      // ---- Branch B: id is "user=<email>"
+      const email = emailFromParam.toLowerCase();
+
+      const users = await strapi.entityService.findMany(USERS_UID, {
+        filters: { email },
+        limit: 1,
+        populate: { 
+          profile: { 
+            populate: { [typeField]: true } 
+          } 
+        },
+      });
+
+      if (!users?.length) {
+        ctx.throw(404, `Owner with email "${email}" was not found.`);
+      }
+
+      const ownerUser = users[0];
+
+      if (agentId !== ownerUser.id) {
+        return ctx.forbidden('You do not have permission to access this resource.');
+      }
+
+      // Ensure the user has a profile (get existing or create new)
+      const profileId = await ensureProfileId(ownerUser);
+
+      // Single record case: find the one record for this profile
+      const { results } = await strapi.service(UID).find({
+        ...sanitizedQuery,
+        filters: { [ownerField]: { id: profileId } },
+        limit: 1,
+      });
+
+      if (!results?.length) {
+        return this.transformResponse(null);
+      }
+
+      const sanitized = await this.sanitizeOutput(results[0], ctx);
+      return this.transformResponse(sanitized);
+    },
+
     // ---------- UPDATE ----------
     async update(ctx) {
       const { id } = ctx.params;
