@@ -1,0 +1,57 @@
+{
+  "kind": "collectionType",
+  "collectionName": "people",
+  "info": {
+    "singularName": "person",
+    "pluralName": "people",
+    "displayName": "Person"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "firstName": {
+      "type": "string"
+    },
+    "lastName": {
+      "type": "string"
+    },
+    "street": {
+      "type": "string"
+    },
+    "city": {
+      "type": "string"
+    },
+    "postalCode": {
+      "type": "string"
+    },
+    "country": {
+      "type": "string"
+    },
+    "birthDate": {
+      "type": "date"
+    },
+    "birthPlace": {
+      "type": "string"
+    },
+    "nationality": {
+      "type": "string"
+    },
+    "maritalStatus": {
+      "type": "string"
+    },
+    "profession": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "profile": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::profile.profile",
+      "inversedBy": "person"
+    }
+  }
+}

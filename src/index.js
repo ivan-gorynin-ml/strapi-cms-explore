@@ -84,5 +84,6 @@ module.exports = {
     setAuthenticatedPermissions(strapi, 'api::user-general-info.user-general-info', FIND_UPDATE_ACTIONS);
     setAuthenticatedPermissions(strapi, 'api::emergency-contact.emergency-contact', FIND_UPDATE_ACTIONS);
     setAuthenticatedPermissions(strapi, 'api::profile.profile', FIND_ACTIONS);
+    setAuthenticatedPermissions(strapi, 'api::person.person', FIND_UPDATE_ACTIONS);
   },
 };

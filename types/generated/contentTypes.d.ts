@@ -505,6 +505,46 @@ export interface ApiEmergencyContactEmergencyContact
   };
 }
 
+export interface ApiPersonPerson extends Struct.CollectionTypeSchema {
+  collectionName: 'people';
+  info: {
+    displayName: 'Person';
+    pluralName: 'people';
+    singularName: 'person';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    birthDate: Schema.Attribute.Date;
+    birthPlace: Schema.Attribute.String;
+    city: Schema.Attribute.String;
+    country: Schema.Attribute.String;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    firstName: Schema.Attribute.String;
+    lastName: Schema.Attribute.String;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::person.person'
+    > &
+      Schema.Attribute.Private;
+    maritalStatus: Schema.Attribute.String;
+    nationality: Schema.Attribute.String;
+    phone: Schema.Attribute.String;
+    postalCode: Schema.Attribute.String;
+    profession: Schema.Attribute.String;
+    profile: Schema.Attribute.Relation<'oneToOne', 'api::profile.profile'>;
+    publishedAt: Schema.Attribute.DateTime;
+    street: Schema.Attribute.String;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
 export interface ApiProfileProfile extends Struct.CollectionTypeSchema {
   collectionName: 'profiles';
   info: {
@@ -525,6 +565,7 @@ export interface ApiProfileProfile extends Struct.CollectionTypeSchema {
       'api::profile.profile'
     > &
       Schema.Attribute.Private;
+    person: Schema.Attribute.Relation<'oneToOne', 'api::person.person'>;
     publishedAt: Schema.Attribute.DateTime;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
@@ -1098,6 +1139,7 @@ declare module '@strapi/strapi' {
       'admin::user': AdminUser;
       'api::account-holder-profile.account-holder-profile': ApiAccountHolderProfileAccountHolderProfile;
       'api::emergency-contact.emergency-contact': ApiEmergencyContactEmergencyContact;
+      'api::person.person': ApiPersonPerson;
       'api::profile.profile': ApiProfileProfile;
       'api::user-general-info.user-general-info': ApiUserGeneralInfoUserGeneralInfo;
       'plugin::content-releases.release': PluginContentReleasesRelease;
