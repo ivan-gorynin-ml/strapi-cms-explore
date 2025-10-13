@@ -82,8 +82,21 @@ module.exports = createCoreController(UID, ({ strapi }) => ({
       return ctx.forbidden('You do not have permission to access this resource.');
     }
 
-    // Ensure the user has a profile (get existing or create new)
-    const profile = await ensureProfile(strapi, ownerUser, false);
+    // Ensure the user has a profile (get existing or create new) - returns just the ID
+    const profileId = await ensureProfile(strapi, ownerUser, true);
+
+    if (!profileId) {
+      return this.transformResponse(null);
+    }
+
+    // Fetch the profile with the sanitized query (includes populate, fields, etc.)
+    const profile = await strapi.entityService.findOne(UID, profileId, {
+      ...sanitizedQuery,
+      populate: {
+        ...(sanitizedQuery.populate || {}),
+        user: true, // Always populate user for ownership verification
+      },
+    });
 
     if (!profile) {
       return this.transformResponse(null);
