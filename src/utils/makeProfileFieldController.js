@@ -9,12 +9,14 @@
  */
 
 const { ensureAgentId, maybeOwnerFilter } = require('./authHelpers');
-
-const USERS_UID = 'plugin::users-permissions.user';
-const PROFILES_UID = 'api::profile.profile';
-
-const getByPath = (obj, path) =>
-  path.split('.').reduce((o, k) => (o && o[k] != null ? o[k] : undefined), obj);
+const { 
+  extractOwnerId, 
+  parseEmailParam, 
+  ensureProfileId,
+  getByPath,
+  USERS_UID,
+  PROFILES_UID 
+} = require('./profileHelpers');
 
 const deleteByPath = (obj, path) => {
   const parts = path.split('.');
@@ -35,66 +37,6 @@ module.exports = function makeProfileFieldController(
   }
 ) {
   if (!UID) throw new Error('makeSecuredCrudController: UID is required');
-
-  /**
-   * Ensures a profile exists for the given user.
-   * If the user already has a profile, returns its ID.
-   * Otherwise, creates a new profile, associates it to the user, and returns the new profile ID.
-   */
-  const ensureProfileId = async (user) => {
-    if (!user?.id) {
-      throw new Error('ensureProfileId: user with id is required');
-    }
-
-    // Fetch user with profile populated
-    const populatedUser = await strapi.entityService.findOne(USERS_UID, user.id, {
-      populate: { profile: true },
-    });
-
-    // If profile exists, return its id
-    if (populatedUser?.profile) {
-      return typeof populatedUser.profile === 'object' 
-        ? populatedUser.profile.id 
-        : populatedUser.profile;
-    }
-
-    // Create new profile and associate it to the user
-    const newProfile = await strapi.documents(PROFILES_UID).create({
-      data: { user: user.id },
-      status: 'published',
-    });
-
-    return newProfile.id;
-  };
-
-  const extractOwnerId = (entity) => {
-    const rel = getByPath(entity, ownerField);
-    if (!rel) return undefined;
-    
-    // Get the profile (could be id or populated object)
-    const profile = typeof rel === 'object' ? rel : { id: rel };
-    
-    // If profile is populated and has a user field, return the user's id
-    if (profile.user !== undefined) {
-      return typeof profile.user === 'object' ? profile.user.id : profile.user;
-    }
-    
-    // If profile is not populated with user, we can't extract user id
-    // Return undefined to indicate we need to fetch with proper population
-    return undefined;
-  };
-
-  const parseEmailParam = (id) => {
-    if (!id || typeof id !== 'string') return null;
-    const re = new RegExp(`^user=([^]+)$`, 'i'); // accept url-encoded
-    const m = re.exec(id);
-    if (!m) return null;
-    try {
-      return decodeURIComponent(m[1]).trim();
-    } catch {
-      return m[1].trim();
-    }
-  };
 
   return {
     // ---------- FIND ----------
@@ -126,7 +68,7 @@ module.exports = function makeProfileFieldController(
       await this.validateQuery(ctx);
       const sanitizedQuery = await this.sanitizeQuery(ctx);
 
-      const emailFromParam = parseEmailParam(id);
+      const emailFromParam = parseEmailParam(id, 'user');
 
       // ---- Branch A: Normal numeric/uuid :id
       if (!emailFromParam) {
@@ -142,7 +84,7 @@ module.exports = function makeProfileFieldController(
 
         if (!existing) return this.transformResponse(null);
 
-        const ownerId = extractOwnerId(existing);
+        const ownerId = extractOwnerId(existing, ownerField);
         if (agentId !== ownerId) {
           return ctx.forbidden('You do not have permission to access this resource.');
         }
@@ -175,7 +117,7 @@ module.exports = function makeProfileFieldController(
       }
 
       // Ensure the user has a profile (get existing or create new)
-      const profileId = await ensureProfileId(ownerUser);
+      const profileId = await ensureProfileId(strapi, ownerUser);
 
       // Single record case: find the one record for this profile
       const { results } = await strapi.service(UID).find({
@@ -231,7 +173,7 @@ module.exports = function makeProfileFieldController(
         deleteByPath(sanitizedInputData, ownerField);
       }
 
-      const emailFromParam = parseEmailParam(id);
+      const emailFromParam = parseEmailParam(id, 'user');
 
       // ---- Branch A: Normal numeric/uuid :id
       if (!emailFromParam) {
@@ -245,7 +187,7 @@ module.exports = function makeProfileFieldController(
         });
         if (!existing) return this.transformResponse(null);
 
-        const ownerId = extractOwnerId(existing);
+        const ownerId = extractOwnerId(existing, ownerField);
         if (agentId !== ownerId) {
           return ctx.forbidden('You do not have permission to modify this resource.');
         }
@@ -295,7 +237,7 @@ module.exports = function makeProfileFieldController(
       }
 
       // Ensure the user has a profile (get existing or create new)
-      const profileId = await ensureProfileId(ownerUser);
+      const profileId = await ensureProfileId(strapi, ownerUser);
 
       // Handle ownerHasMany case: expect array of partial updates
       if (ownerHasMany) {
@@ -324,7 +266,7 @@ module.exports = function makeProfileFieldController(
             }
 
             // Verify ownership (check against user via profile)
-            const itemOwnerId = extractOwnerId(existing);
+            const itemOwnerId = extractOwnerId(existing, ownerField);
             if (itemOwnerId !== ownerUser.id) {
               return ctx.forbidden(`You do not own the record with id ${itemId}`);
             }
