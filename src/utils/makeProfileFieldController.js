@@ -13,9 +13,7 @@ const {
   extractOwnerId, 
   parseEmailParam, 
   ensureProfileId,
-  getByPath,
-  USERS_UID,
-  PROFILES_UID 
+  USERS_UID 
 } = require('./profileHelpers');
 
 const deleteByPath = (obj, path) => {
