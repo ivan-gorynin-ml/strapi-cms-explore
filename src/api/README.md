@@ -2,22 +2,25 @@
 
 ## Overview
 
-This API implements a user-centric data model with strong ownership guarantees. Users can only access and modify their own data through authenticated endpoints. The architecture centers around three main content types: **Profile**, **Person**, and **IdentityDocument**, which form a network of one-to-one relationships with the authentication system.
+This API implements a user-centric data model with strong ownership guarantees. Users can only access and modify their own data through authenticated endpoints. The architecture centers around four main content types: **Profile**, **Person**, **IdentityDocument**, and **EmergencyContact**, which form a network of relationships with the authentication system.
 
 ## Data Model Relationships
 
 ### Relationship Chain
 ```
-                    ┌─→ Person
-User (auth) ←→ Profile
-                    └─→ IdentityDocument
+                    ┌─→ Person (1:1)
+                    │
+User (auth) ←→ Profile ├─→ IdentityDocument (1:1)
+                    │
+                    └─→ EmergencyContact (1:N)
 ```
 
-All relationships are **one-to-one**:
+**Relationship Types:**
 - Each **User** has exactly one **Profile** (created automatically on first access)
-- Each **Profile** has at most one **Person** record containing personal information
-- Each **Profile** has at most one **IdentityDocument** record containing identity information
-- Access control is enforced through the User → Profile chain to both Person and IdentityDocument
+- Each **Profile** has at most one **Person** record containing personal information (one-to-one)
+- Each **Profile** has at most one **IdentityDocument** record containing identity information (one-to-one)
+- Each **Profile** can have **multiple EmergencyContact** records (one-to-many)
+- Access control is enforced through the User → Profile chain to all related entities
 
 ### Content Type Schemas
 
@@ -28,11 +31,12 @@ A lightweight connector entity that bridges authentication and user data.
 - `user` (relation): One-to-one with `plugin::users-permissions.user`
 - `person` (relation): One-to-one with `api::person.person`
 - `identity_document` (relation): One-to-one with `api::identity-document.identity-document`
+- `emergency_contacts` (relation): One-to-many with `api::emergency-contact.emergency-contact`
 
 **Purpose:**
 - Acts as an ownership anchor for all user-related data
 - Created automatically when a user first accesses their profile
-- Provides a stable reference point for related entities (person, identity documents, etc.)
+- Provides a stable reference point for related entities (person, identity documents, emergency contacts, etc.)
 
 #### Person
 Stores detailed personal and contact information.
@@ -68,6 +72,24 @@ Stores government-issued identification document information.
 - Used for identity verification and compliance purposes
 - Linked to profile for ownership and access control
 
+#### EmergencyContact
+Stores emergency contact information for the user. **Unlike Person and IdentityDocument, users can have multiple emergency contacts.**
+
+**Fields:**
+- `firstName` (string): Contact's first name
+- `lastName` (string): Contact's last name
+- `relationship` (string): Relationship to the user (e.g., "Spouse", "Parent", "Sibling", "Friend")
+- `phone` (string): Contact's phone number
+- `email` (email): Contact's email address
+- `profile` (relation): Many-to-one with `api::profile.profile` (owner reference)
+
+**Purpose:**
+- Stores contact information for people to notify in case of emergency
+- Supports multiple contacts per user (family, friends, neighbors, etc.)
+- Linked to profile for ownership and access control
+
+**Key Difference:** This is a **one-to-many** relationship, allowing bulk operations to create, update, or manage multiple contacts in a single request.
+
 ## Authentication & Authorization
 
 ### Access Control
@@ -100,14 +122,14 @@ Authorization: Bearer <jwt_token>
 #### Query Parameters
 - **populate[profile][populate]=*** : Deep population that includes:
   - The user's profile
-  - All relations within the profile (person, identity_document, etc.)
+  - All relations within the profile (person, identity_document, emergency_contacts, etc.)
 
 #### What Happens Internally
 
 1. **Token Validation**: The JWT bearer token is validated
 2. **User Identification**: `ctx.state.user` is extracted from the token
 3. **Data Retrieval**: Fetches the user with profile and all nested relations
-4. **Automatic Population**: Strapi populates the profile and its nested relations (person, identity_document)
+4. **Automatic Population**: Strapi populates the profile and its nested relations (person, identity_document, emergency_contacts)
 5. **Response Sanitization**: Sensitive fields (password, tokens) are automatically removed
 
 #### Response Structure
@@ -161,7 +183,33 @@ Authorization: Bearer <jwt_token>
       "createdAt": "2025-10-01T10:10:00.000Z",
       "updatedAt": "2025-10-13T14:30:00.000Z",
       "publishedAt": "2025-10-01T10:10:00.000Z"
-    }
+    },
+    "emergency_contacts": [
+      {
+        "id": 301,
+        "documentId": "pqr301stu",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "relationship": "Spouse",
+        "phone": "+1-555-1111",
+        "email": "jane.doe@mail.com",
+        "createdAt": "2025-10-01T10:15:00.000Z",
+        "updatedAt": "2025-10-13T14:30:00.000Z",
+        "publishedAt": "2025-10-01T10:15:00.000Z"
+      },
+      {
+        "id": 302,
+        "documentId": "vwx302yza",
+        "firstName": "Bob",
+        "lastName": "Smith",
+        "relationship": "Brother",
+        "phone": "+1-555-2222",
+        "email": "bob.smith@mail.com",
+        "createdAt": "2025-10-01T10:20:00.000Z",
+        "updatedAt": "2025-10-13T14:30:00.000Z",
+        "publishedAt": "2025-10-01T10:20:00.000Z"
+      }
+    ]
   }
 }
 ```
@@ -169,10 +217,10 @@ Authorization: Bearer <jwt_token>
 #### Key Advantages
 
 1. **No Email Required**: Works directly from the JWT token without needing to know the user's email
-2. **Single Request**: Gets user, profile, person, and identity document data in one API call
+2. **Single Request**: Gets user, profile, person, identity document, and all emergency contacts in one API call
 3. **Standard Endpoint**: Uses Strapi's built-in users-permissions `/me` endpoint
 4. **Automatic Ownership**: No ownership checks needed—always returns the authenticated user's data
-5. **Null Safety**: If profile, person, or identity_document don't exist yet, they'll be null in the response
+5. **Null Safety**: If profile, person, or identity_document don't exist yet, they'll be null; emergency_contacts will be an empty array
 
 #### Use Cases
 
@@ -193,14 +241,22 @@ if (userData.profile?.person) {
 if (userData.profile?.identity_document) {
   console.log(`Document: ${userData.profile.identity_document.type} - ${userData.profile.identity_document.number}`);
 }
+
+if (userData.profile?.emergency_contacts?.length > 0) {
+  console.log(`Emergency contacts: ${userData.profile.emergency_contacts.length}`);
+  userData.profile.emergency_contacts.forEach(contact => {
+    console.log(`- ${contact.firstName} ${contact.lastName} (${contact.relationship}): ${contact.phone}`);
+  });
+}
 ```
 
 **Conditional Rendering**: Check if profile is complete
 ```javascript
 const hasPersonalInfo = userData.profile?.person !== null;
 const hasIdentityDocument = userData.profile?.identity_document !== null;
+const hasEmergencyContacts = userData.profile?.emergency_contacts?.length > 0;
 
-if (!hasPersonalInfo || !hasIdentityDocument) {
+if (!hasPersonalInfo || !hasIdentityDocument || !hasEmergencyContacts) {
   // Redirect to profile completion page
 }
 ```
@@ -255,7 +311,7 @@ Authorization: Bearer <jwt_token>
 - **Email-based ID**: `user=john.doe@mail.com`
   - The API accepts email addresses as identifiers using the format `user=<email>`
   - The authenticated user must match the requested email
-- **populate=*** : Populates all relations (user, person, identity_document)
+- **populate=*** : Populates all relations (user, person, identity_document, emergency_contacts)
 
 #### What Happens Internally
 
@@ -329,6 +385,38 @@ Authorization: Bearer <jwt_token>
             "publishedAt": "2025-10-01T10:10:00.000Z"
           }
         }
+      },
+      "emergency_contacts": {
+        "data": [
+          {
+            "id": 301,
+            "documentId": "pqr301stu",
+            "attributes": {
+              "firstName": "Jane",
+              "lastName": "Doe",
+              "relationship": "Spouse",
+              "phone": "+1-555-1111",
+              "email": "jane.doe@mail.com",
+              "createdAt": "2025-10-01T10:15:00.000Z",
+              "updatedAt": "2025-10-13T14:30:00.000Z",
+              "publishedAt": "2025-10-01T10:15:00.000Z"
+            }
+          },
+          {
+            "id": 302,
+            "documentId": "vwx302yza",
+            "attributes": {
+              "firstName": "Bob",
+              "lastName": "Smith",
+              "relationship": "Brother",
+              "phone": "+1-555-2222",
+              "email": "bob.smith@mail.com",
+              "createdAt": "2025-10-01T10:20:00.000Z",
+              "updatedAt": "2025-10-13T14:30:00.000Z",
+              "publishedAt": "2025-10-01T10:20:00.000Z"
+            }
+          }
+        ]
       }
     }
   },
@@ -340,7 +428,7 @@ Authorization: Bearer <jwt_token>
 - **Automatic Profile Creation**: If the user doesn't have a profile, it's created on-the-fly
 - **Flexible Identifiers**: Supports both numeric IDs and email-based lookups
 - **Secure by Default**: Users can only retrieve their own profile
-- **Null Safety**: Returns `null` if person or identity_document haven't been created yet
+- **Null Safety**: Returns `null` if person or identity_document haven't been created yet; emergency_contacts returns an empty array if none exist
 
 ## Person API
 
@@ -498,20 +586,689 @@ Only the `firstName` field is updated; all other fields remain unchanged.
 }
 ```
 
+## IdentityDocument API
+
+Base URL: `/api/identity-documents`
+
+The IdentityDocument API follows the same patterns as the Person API, providing secure access to identity document information through the Profile ownership chain.
+
+### GET /api/identity-documents/user=john.doe@mail.com
+
+#### Purpose
+Retrieves a user's identity document by email address.
+
+#### Request
+```http
+GET /api/identity-documents/user=john.doe@mail.com HTTP/1.1
+Host: localhost:1337
+Authorization: Bearer <jwt_token>
+```
+
+#### Response Structure
+```json
+{
+  "data": {
+    "id": 234,
+    "documentId": "jkl234mno",
+    "attributes": {
+      "type": "passport",
+      "number": "P12345678",
+      "issueDate": "2020-01-15",
+      "expiryDate": "2030-01-15",
+      "issuingAuthority": "U.S. Department of State",
+      "createdAt": "2025-10-01T10:10:00.000Z",
+      "updatedAt": "2025-10-13T14:30:00.000Z",
+      "publishedAt": "2025-10-01T10:10:00.000Z",
+      "profile": {
+        "data": {
+          "id": 123,
+          "documentId": "abc123xyz"
+        }
+      }
+    }
+  },
+  "meta": {}
+}
+```
+
+### PUT /api/identity-documents/user=john.doe@mail.com
+
+#### Purpose
+Updates (or creates) a user's identity document by email address. Allows partial updates of identity document fields.
+
+#### Request
+```http
+PUT /api/identity-documents/user=john.doe@mail.com HTTP/1.1
+Host: localhost:1337
+Authorization: Bearer <jwt_token>
+Content-Type: application/json
+
+{
+  "data": {
+    "type": "passport",
+    "number": "P87654321",
+    "issueDate": "2023-06-01",
+    "expiryDate": "2033-06-01",
+    "issuingAuthority": "U.S. Department of State"
+  }
+}
+```
+
+#### Request Body Structure
+The body must contain a `data` object with the fields to update:
+```json
+{
+  "data": {
+    "type": "passport",
+    "number": "P87654321",
+    "issueDate": "2023-06-01",
+    "expiryDate": "2033-06-01",
+    "issuingAuthority": "U.S. Department of State"
+  }
+}
+```
+
+#### What Happens Internally
+
+The IdentityDocument API uses the same `makeProfileFieldController` as Person, providing identical security and behavior patterns:
+
+1. **Email Parsing**: Extracts `john.doe@mail.com` from the `user=` parameter
+2. **User Lookup**: Finds user by email with profile and identity_document populated
+3. **Authorization Check**: Verifies `ctx.state.user.id` matches the user
+4. **Profile Verification**: Ensures the user has a profile (creates if missing)
+5. **Document Record Resolution**:
+   - **If identity_document exists**: Finds the existing document record linked to this profile
+   - **If identity_document doesn't exist**: Creates a new document record with `profile: profileId`
+6. **Ownership Protection**: Strips out any `profile` field from the payload (prevents ownership hijacking)
+7. **Partial Update**: Updates only the fields present in the request body
+8. **Document API**: Uses Strapi's Documents API (`strapi.documents(UID).update()`) for the update
+9. **Response**: Returns the updated identity document record with sanitized data
+
+#### Effect of the Example Request
+
+**Scenario 1: Updating Existing Document**
+
+**Before:**
+```json
+{
+  "id": 234,
+  "type": "passport",
+  "number": "P12345678",
+  "issueDate": "2020-01-15",
+  "expiryDate": "2030-01-15",
+  "issuingAuthority": "U.S. Department of State"
+}
+```
+
+**After:**
+```json
+{
+  "id": 234,
+  "type": "passport",              // ← Unchanged (reconfirmed)
+  "number": "P87654321",           // ← Changed
+  "issueDate": "2023-06-01",       // ← Changed
+  "expiryDate": "2033-06-01",      // ← Changed
+  "issuingAuthority": "U.S. Department of State"  // ← Unchanged (reconfirmed)
+}
+```
+
+**Scenario 2: Creating New Document**
+
+If no identity document exists for the user, the same PUT request creates one:
+
+**Before:** `null` (no document)
+
+**After:**
+```json
+{
+  "id": 234,
+  "type": "passport",
+  "number": "P87654321",
+  "issueDate": "2023-06-01",
+  "expiryDate": "2033-06-01",
+  "issuingAuthority": "U.S. Department of State",
+  "profile": 123
+}
+```
+
+#### Response Structure
+```json
+{
+  "data": {
+    "id": 234,
+    "documentId": "jkl234mno",
+    "attributes": {
+      "type": "passport",
+      "number": "P87654321",
+      "issueDate": "2023-06-01",
+      "expiryDate": "2033-06-01",
+      "issuingAuthority": "U.S. Department of State",
+      "createdAt": "2025-10-01T10:10:00.000Z",
+      "updatedAt": "2025-10-13T16:00:00.000Z",
+      "publishedAt": "2025-10-01T10:10:00.000Z",
+      "profile": {
+        "data": {
+          "id": 123,
+          "documentId": "abc123xyz"
+        }
+      }
+    }
+  },
+  "meta": {}
+}
+```
+
+#### Update Behavior Details
+
+**Partial Updates**: Only fields in the request body are modified
+```json
+// Update only the expiry date
+{
+  "data": {
+    "expiryDate": "2035-12-31"
+  }
+}
+```
+
+**Document Type Changes**: Can change document type (e.g., from passport to driver's license)
+```json
+{
+  "data": {
+    "type": "driver_license",
+    "number": "DL123456789",
+    "issueDate": "2024-01-01",
+    "expiryDate": "2028-01-01",
+    "issuingAuthority": "California DMV"
+  }
+}
+```
+
+**Auto-creation**: If identity_document doesn't exist, it's created with the provided fields
+```json
+// First update creates the identity document record
+{
+  "data": {
+    "type": "national_id",
+    "number": "NID-98765432",
+    "issueDate": "2022-03-15",
+    "expiryDate": "2032-03-15",
+    "issuingAuthority": "National ID Authority"
+  }
+}
+```
+
+**Ownership Protection**: The `profile` relation cannot be changed via API
+```json
+// This attempt to change ownership is ignored
+{
+  "data": {
+    "type": "passport",
+    "profile": 999  // ← This is stripped out before processing
+  }
+}
+```
+
+#### Common Document Types
+
+The `type` field typically contains one of these values:
+- `"passport"` - International passport
+- `"national_id"` - National identity card
+- `"driver_license"` - Driver's license
+- `"residence_permit"` - Residence/work permit
+- `"military_id"` - Military identification
+- Or any custom document type your application requires
+
+#### Security Considerations
+
+**Sensitive Data**: Identity documents contain highly sensitive PII (Personally Identifiable Information)
+- Always use HTTPS in production
+- Consider additional encryption for document numbers
+- Implement audit logging for all access and modifications
+- Follow data protection regulations (GDPR, CCPA, etc.)
+
+**Access Control**: 
+- Users can only access their own identity documents
+- No cross-user access is possible
+- Ownership is enforced at the database query level
+
+## EmergencyContact API
+
+Base URL: `/api/emergency-contacts`
+
+The EmergencyContact API differs from Person and IdentityDocument in a fundamental way: it supports **one-to-many relationships**. Users can have multiple emergency contacts, and the API provides bulk operations to manage them efficiently.
+
+### Key Difference: One-to-Many Relationship
+
+Unlike Person and IdentityDocument (which are one-to-one with Profile), EmergencyContact uses a **one-to-many** relationship:
+- A single Profile can have **multiple** EmergencyContact records
+- Updates accept **arrays** of contact objects
+- Each item in the array can be either an update (with `id`) or a new contact (without `id`)
+
+### GET /api/emergency-contacts
+
+#### Purpose
+Retrieves all emergency contacts for the authenticated user.
+
+#### Request
+```http
+GET /api/emergency-contacts HTTP/1.1
+Host: localhost:1337
+Authorization: Bearer <jwt_token>
+```
+
+#### Response Structure
+```json
+{
+  "data": [
+    {
+      "id": 301,
+      "documentId": "pqr301stu",
+      "attributes": {
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "relationship": "Spouse",
+        "phone": "+1-555-1111",
+        "email": "jane.doe@mail.com",
+        "createdAt": "2025-10-01T10:15:00.000Z",
+        "updatedAt": "2025-10-13T14:30:00.000Z",
+        "publishedAt": "2025-10-01T10:15:00.000Z"
+      }
+    },
+    {
+      "id": 302,
+      "documentId": "vwx302yza",
+      "attributes": {
+        "firstName": "Bob",
+        "lastName": "Smith",
+        "relationship": "Brother",
+        "phone": "+1-555-2222",
+        "email": "bob.smith@mail.com",
+        "createdAt": "2025-10-01T10:20:00.000Z",
+        "updatedAt": "2025-10-13T14:30:00.000Z",
+        "publishedAt": "2025-10-01T10:20:00.000Z"
+      }
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "page": 1,
+      "pageSize": 25,
+      "pageCount": 1,
+      "total": 2
+    }
+  }
+}
+```
+
+#### Features
+- Automatically filtered to show only the authenticated user's contacts
+- Supports standard Strapi query parameters (pagination, sorting, filtering)
+- Returns empty array if no contacts exist
+
+### PUT /api/emergency-contacts/user=john.doe@mail.com
+
+#### Purpose
+Updates or creates emergency contacts for a user identified by their email address. **This endpoint supports bulk operations** with partial updates.
+
+#### Request
+```http
+PUT /api/emergency-contacts/user=john.doe@mail.com HTTP/1.1
+Host: localhost:1337
+Authorization: Bearer <jwt_token>
+Content-Type: application/json
+
+{
+  "data": [
+    {
+      "id": 301,
+      "phone": "+1-555-9999"
+    },
+    {
+      "firstName": "Sarah",
+      "lastName": "Johnson",
+      "relationship": "Friend",
+      "phone": "+1-555-3333",
+      "email": "sarah.j@mail.com"
+    }
+  ]
+}
+```
+
+#### Request Body Structure
+
+The body must contain a `data` field with an **array** of emergency contact objects. Each object represents either an update to an existing contact or a new contact to create.
+
+**Critical Point:** Unlike Person and IdentityDocument which accept a single object, EmergencyContact requires an **array** in the `data` field.
+
+```json
+{
+  "data": [
+    // Array of contact objects
+  ]
+}
+```
+
+### How Updates Work for EmergencyContacts
+
+The API processes each item in the array according to these rules:
+
+#### Rule 1: Item with `id` field (Update Existing)
+
+If an element contains an `id` field, the API updates the existing contact:
+
+**Behavior:**
+1. Finds the existing emergency contact by its `id`
+2. Verifies that the authenticated user owns this contact (via profile)
+3. Updates **only the fields provided** in the request (partial update)
+4. Leaves all other fields unchanged
+5. Returns the updated contact
+
+**Example:**
+```json
+{
+  "data": [
+    {
+      "id": 301,
+      "phone": "+1-555-9999"
+    }
+  ]
+}
+```
+
+**Effect:** Updates only the phone number of contact #301, leaving firstName, lastName, relationship, and email unchanged.
+
+#### Rule 2: Item without `id` field (Create New)
+
+If an element does **not** contain an `id` field, the API creates a new contact:
+
+**Behavior:**
+1. Creates a new emergency contact entry
+2. Automatically assigns the authenticated user's profile as the owner
+3. Initializes the contact with the provided field values
+4. Returns the newly created contact
+
+**Example:**
+```json
+{
+  "data": [
+    {
+      "firstName": "Sarah",
+      "lastName": "Johnson",
+      "relationship": "Friend",
+      "phone": "+1-555-3333",
+      "email": "sarah.j@mail.com"
+    }
+  ]
+}
+```
+
+**Effect:** Creates a new emergency contact with the provided information.
+
+### Complete Update Example
+
+#### Request
+```http
+PUT /api/emergency-contacts/user=john.doe@mail.com HTTP/1.1
+Host: localhost:1337
+Authorization: Bearer <jwt_token>
+Content-Type: application/json
+
+{
+  "data": [
+    {
+      "id": 301,
+      "phone": "+1-555-1111-NEW"
+    },
+    {
+      "id": 302,
+      "relationship": "Close Friend",
+      "email": "bob.updated@mail.com"
+    },
+    {
+      "firstName": "Emergency",
+      "lastName": "Services",
+      "relationship": "Hospital",
+      "phone": "+1-911-0000",
+      "email": "emergency@hospital.com"
+    }
+  ]
+}
+```
+
+**What happens:**
+- **Contact #301**: Updates only the phone number
+- **Contact #302**: Updates relationship and email, other fields unchanged
+- **Third item**: Creates a new emergency contact
+
+#### Response
+```json
+{
+  "data": [
+    {
+      "id": 301,
+      "documentId": "pqr301stu",
+      "attributes": {
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "relationship": "Spouse",
+        "phone": "+1-555-1111-NEW",
+        "email": "jane.doe@mail.com",
+        "createdAt": "2025-10-01T10:15:00.000Z",
+        "updatedAt": "2025-10-13T16:00:00.000Z",
+        "publishedAt": "2025-10-01T10:15:00.000Z"
+      }
+    },
+    {
+      "id": 302,
+      "documentId": "vwx302yza",
+      "attributes": {
+        "firstName": "Bob",
+        "lastName": "Smith",
+        "relationship": "Close Friend",
+        "phone": "+1-555-2222",
+        "email": "bob.updated@mail.com",
+        "createdAt": "2025-10-01T10:20:00.000Z",
+        "updatedAt": "2025-10-13T16:00:00.000Z",
+        "publishedAt": "2025-10-01T10:20:00.000Z"
+      }
+    },
+    {
+      "id": 303,
+      "documentId": "bcd303efg",
+      "attributes": {
+        "firstName": "Emergency",
+        "lastName": "Services",
+        "relationship": "Hospital",
+        "phone": "+1-911-0000",
+        "email": "emergency@hospital.com",
+        "createdAt": "2025-10-13T16:00:00.000Z",
+        "updatedAt": "2025-10-13T16:00:00.000Z",
+        "publishedAt": "2025-10-13T16:00:00.000Z"
+      }
+    }
+  ],
+  "meta": {}
+}
+```
+
+### Common Use Cases
+
+#### Use Case 1: Add First Emergency Contact
+```json
+{
+  "data": [
+    {
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "relationship": "Spouse",
+      "phone": "+1-555-1111",
+      "email": "jane@example.com"
+    }
+  ]
+}
+```
+
+#### Use Case 2: Update Existing Contact Phone
+```json
+{
+  "data": [
+    {
+      "id": 301,
+      "phone": "+1-555-9999"
+    }
+  ]
+}
+```
+
+#### Use Case 3: Add Multiple Contacts at Once
+```json
+{
+  "data": [
+    {
+      "firstName": "Mom",
+      "lastName": "Smith",
+      "relationship": "Mother",
+      "phone": "+1-555-1111",
+      "email": "mom@example.com"
+    },
+    {
+      "firstName": "Dad",
+      "lastName": "Smith",
+      "relationship": "Father",
+      "phone": "+1-555-2222",
+      "email": "dad@example.com"
+    },
+    {
+      "firstName": "Best Friend",
+      "lastName": "Jones",
+      "relationship": "Friend",
+      "phone": "+1-555-3333",
+      "email": "friend@example.com"
+    }
+  ]
+}
+```
+
+#### Use Case 4: Mixed Update and Create
+```json
+{
+  "data": [
+    {
+      "id": 301,
+      "email": "jane.new@example.com"
+    },
+    {
+      "firstName": "New",
+      "lastName": "Contact",
+      "relationship": "Colleague",
+      "phone": "+1-555-4444",
+      "email": "colleague@example.com"
+    }
+  ]
+}
+```
+
+### What Happens Internally
+
+1. **Email Parsing**: Extracts `john.doe@mail.com` from the `user=` parameter
+2. **User Lookup**: Finds user by email with profile and emergency_contacts populated
+3. **Authorization Check**: Verifies `ctx.state.user.id` matches the user
+4. **Profile Verification**: Ensures the user has a profile (creates if missing)
+5. **Array Validation**: Confirms `data` is an array, not a single object
+6. **Item Processing**: Iterates through each item in the array:
+   - **If item has `id`**: 
+     - Finds existing contact by ID
+     - Verifies ownership via profile chain
+     - Performs partial update with Documents API
+   - **If item has no `id`**:
+     - Creates new contact with `profile: profileId`
+     - Assigns all provided fields
+7. **Ownership Protection**: Strips out any `profile` field from payloads
+8. **Response**: Returns array of all processed contacts (updated and created)
+
+### Ownership Protection
+
+The `profile` relation cannot be changed via API:
+```json
+// This attempt to change ownership is ignored
+{
+  "data": [
+    {
+      "id": 301,
+      "phone": "+1-555-9999",
+      "profile": 999  // ← This is stripped out before processing
+    }
+  ]
+}
+```
+
+### Common Relationship Values
+
+Typical values for the `relationship` field:
+- `"Spouse"` / `"Partner"`
+- `"Parent"` / `"Mother"` / `"Father"`
+- `"Child"` / `"Son"` / `"Daughter"`
+- `"Sibling"` / `"Brother"` / `"Sister"`
+- `"Friend"` / `"Close Friend"`
+- `"Colleague"` / `"Coworker"`
+- `"Neighbor"`
+- `"Doctor"` / `"Physician"`
+- `"Lawyer"`
+- Or any custom relationship your application requires
+
+### Error Responses
+
+**400 Bad Request** - Data is not an array:
+```json
+{
+  "error": {
+    "status": 400,
+    "name": "BadRequestError",
+    "message": "Data must be an array of updates"
+  }
+}
+```
+
+**403 Forbidden** - Attempting to update another user's contact:
+```json
+{
+  "error": {
+    "status": 403,
+    "name": "ForbiddenError",
+    "message": "You do not own the record with id 301"
+  }
+}
+```
+
+**404 Not Found** - User or contact not found:
+```json
+{
+  "error": {
+    "status": 404,
+    "name": "NotFoundError",
+    "message": "Owner with email \"invalid@example.com\" was not found."
+  }
+}
+```
+
 ## Alternative Access Patterns
 
 ### Numeric ID Access
-Both APIs support traditional numeric IDs for direct access:
+All APIs support traditional numeric IDs for direct access:
 
 ```http
 GET /api/profiles/123
 PUT /api/people/789
+PUT /api/identity-documents/234
+PUT /api/emergency-contacts/user=john.doe@mail.com
 ```
 
 When using numeric IDs:
 - The system still verifies ownership through the relationship chain
-- The profile/person must belong to the authenticated user
+- The profile/person/identity-document/emergency-contacts must belong to the authenticated user
 - Returns 403 Forbidden if ownership check fails
+
+**Note:** EmergencyContact updates via numeric ID would require individual PUT requests per contact. The email-based endpoint is preferred for bulk operations.
 
 ### Standard REST Operations
 
@@ -526,6 +1283,18 @@ Returns only profiles owned by the authenticated user.
 GET /api/people
 ```
 Returns only person records owned by the authenticated user (via profile relation).
+
+#### List Identity Documents (Filtered to Current User)
+```http
+GET /api/identity-documents
+```
+Returns only identity document records owned by the authenticated user (via profile relation).
+
+#### List Emergency Contacts (Filtered to Current User)
+```http
+GET /api/emergency-contacts
+```
+Returns only emergency contact records owned by the authenticated user (via profile relation). Supports pagination for users with many contacts.
 
 ## Error Responses
 
@@ -616,13 +1385,25 @@ makeProfileFieldController({
 Always use `populate` parameter to include related data:
 ```http
 GET /api/profiles/user=john.doe@mail.com?populate[person]=*
+GET /api/profiles/user=john.doe@mail.com?populate[identity_document]=*
+GET /api/profiles/user=john.doe@mail.com?populate[emergency_contacts]=*
 GET /api/profiles/user=john.doe@mail.com?populate=*
 ```
 
 ### Partial Updates
-Send only fields that need to change:
+
+**For Person and IdentityDocument (single object):**
 ```json
 {"data": {"phone": "+1-555-9999"}}
+```
+
+**For EmergencyContacts (array of objects):**
+```json
+{
+  "data": [
+    {"id": 301, "phone": "+1-555-9999"}
+  ]
+}
 ```
 
 ### Error Handling
@@ -640,12 +1421,46 @@ Use URL-encoded emails if they contain special characters:
 
 ## Summary
 
-1. **One-to-One Relationships**: User → Profile → Person chain ensures data integrity
-2. **Automatic Provisioning**: Profiles are created on first access
-3. **Email-Based Access**: Intuitive `user=email@example.com` identifier pattern
-4. **Strong Ownership**: Users can only access their own data
-5. **Partial Updates**: Efficient updates of individual fields
-6. **Auto-creation**: Person records are created if missing during PUT operations
-7. **Protection Against Ownership Hijacking**: Relation fields are stripped from user input
+The Profile, Person, IdentityDocument, and EmergencyContact APIs provide a secure, user-centric REST interface with the following characteristics:
 
+### Core Features
+
+1. **Flexible Relationships**: 
+   - User → Profile (1:1)
+   - Profile → Person (1:1)
+   - Profile → IdentityDocument (1:1)
+   - Profile → EmergencyContacts (1:N)
+
+2. **Automatic Provisioning**: Profiles are created on first access
+
+3. **Email-Based Access**: Intuitive `user=email@example.com` identifier pattern for all endpoints
+
+4. **Strong Ownership**: Users can only access their own data through authenticated, profile-linked ownership chains
+
+5. **Partial Updates**: Efficient updates of individual fields without sending complete objects
+
+6. **Auto-creation**: Person, IdentityDocument, and EmergencyContact records are created if missing during PUT operations
+
+7. **Protection Against Ownership Hijacking**: Relation fields (`profile`) are automatically stripped from user input
+
+8. **Unified Security Model**: All content types use the same `makeProfileFieldController` for consistent behavior and security
+
+9. **Sensitive Data Protection**: Built-in considerations for PII, especially for IdentityDocument data
+
+### Key Differences Between Content Types
+
+| Feature | Person | IdentityDocument | EmergencyContact |
+|---------|--------|------------------|------------------|
+| **Relationship** | 1:1 with Profile | 1:1 with Profile | 1:N with Profile |
+| **Request Body** | Single object | Single object | Array of objects |
+| **Use Case** | Personal details | ID verification | Emergency contacts |
+| **Update Pattern** | Replace/create one | Replace/create one | Bulk update/create |
+| **Response** | Single record | Single record | Array of records |
+
+### EmergencyContact Special Features
+
+- **Bulk Operations**: Update multiple contacts in a single request
+- **Mixed Operations**: Combine updates (items with `id`) and creates (items without `id`) in one request
+- **Array Processing**: Each item in the array is independently processed
+- **Scalable**: Designed to handle users with many emergency contacts
 

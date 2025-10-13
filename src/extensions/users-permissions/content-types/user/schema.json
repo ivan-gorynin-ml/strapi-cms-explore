@@ -88,12 +88,6 @@
       "target": "api::user-general-info.user-general-info",
       "inversedBy": "user"
     },
-    "emergency_contacts": {
-      "type": "relation",
-      "relation": "oneToMany",
-      "target": "api::emergency-contact.emergency-contact",
-      "mappedBy": "user"
-    },
     "profile": {
       "type": "relation",
       "relation": "oneToOne",

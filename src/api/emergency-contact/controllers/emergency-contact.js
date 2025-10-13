@@ -5,15 +5,16 @@
  */
 
 const { createCoreController } = require('@strapi/strapi').factories;
-const makeSecuredCrudController = require('../../../utils/makeSecuredCrudController');
 
 const UID = 'api::emergency-contact.emergency-contact';
 
+const makeProfileFieldController = require('../../../utils/makeProfileFieldController');
 module.exports = createCoreController(UID, ({ strapi }) => {
-  const securedCrudController = makeSecuredCrudController({ strapi, UID, typeField: "emergency_contacts", ownerHasMany: true });
+  const securedCrudController = makeProfileFieldController({ strapi, UID, typeField: "emergency_contacts", ownerHasMany: true });
   return {
     ...securedCrudController,
   };
 });
+
 
 

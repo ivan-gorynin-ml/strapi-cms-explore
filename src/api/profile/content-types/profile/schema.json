@@ -28,6 +28,12 @@
       "relation": "oneToOne",
       "target": "api::identity-document.identity-document",
       "mappedBy": "profile"
+    },
+    "emergency_contacts": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "api::emergency-contact.emergency-contact",
+      "mappedBy": "profile"
     }
   }
 }

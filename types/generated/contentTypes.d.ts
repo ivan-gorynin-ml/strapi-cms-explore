@@ -493,15 +493,12 @@ export interface ApiEmergencyContactEmergencyContact
     > &
       Schema.Attribute.Private;
     phone: Schema.Attribute.String;
+    profile: Schema.Attribute.Relation<'manyToOne', 'api::profile.profile'>;
     publishedAt: Schema.Attribute.DateTime;
     relationship: Schema.Attribute.String;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
-    user: Schema.Attribute.Relation<
-      'manyToOne',
-      'plugin::users-permissions.user'
-    >;
   };
 }
 
@@ -593,6 +590,10 @@ export interface ApiProfileProfile extends Struct.CollectionTypeSchema {
     createdAt: Schema.Attribute.DateTime;
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
+    emergency_contacts: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::emergency-contact.emergency-contact'
+    >;
     identity_document: Schema.Attribute.Relation<
       'oneToOne',
       'api::identity-document.identity-document'
@@ -1121,10 +1122,6 @@ export interface PluginUsersPermissionsUser
       Schema.Attribute.SetMinMaxLength<{
         minLength: 6;
       }>;
-    emergency_contacts: Schema.Attribute.Relation<
-      'oneToMany',
-      'api::emergency-contact.emergency-contact'
-    >;
     firstName: Schema.Attribute.String;
     lastName: Schema.Attribute.String;
     locale: Schema.Attribute.String & Schema.Attribute.Private;

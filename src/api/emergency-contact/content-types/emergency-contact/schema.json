@@ -11,10 +11,10 @@
   },
   "pluginOptions": {},
   "attributes": {
-    "user": {
+    "profile": {
       "type": "relation",
       "relation": "manyToOne",
-      "target": "plugin::users-permissions.user",
+      "target": "api::profile.profile",
       "inversedBy": "emergency_contacts"
     },
     "firstName": {
