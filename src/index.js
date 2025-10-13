@@ -82,10 +82,11 @@ module.exports = {
     const FIND_ACTIONS = [...FIND_NO_FINDONE_ACTIONS, 'findOne'];
     const FIND_UPDATE_ACTIONS = [...FIND_ACTIONS, 'update'];
     const FIND_NO_FINDONE_UPDATE_ACTIONS = [...FIND_NO_FINDONE_ACTIONS, 'update'];
+    const FIND_NO_FINDONE_UPDATE_DELETE_ACTIONS = [...FIND_NO_FINDONE_UPDATE_ACTIONS, 'delete'];
 
     setAuthenticatedPermissions(strapi, 'api::profile.profile', FIND_ACTIONS);
     setAuthenticatedPermissions(strapi, 'api::person.person', FIND_UPDATE_ACTIONS);
     setAuthenticatedPermissions(strapi, 'api::identity-document.identity-document', FIND_UPDATE_ACTIONS);
-    setAuthenticatedPermissions(strapi, 'api::emergency-contact.emergency-contact', FIND_NO_FINDONE_UPDATE_ACTIONS);
+    setAuthenticatedPermissions(strapi, 'api::emergency-contact.emergency-contact', FIND_NO_FINDONE_UPDATE_DELETE_ACTIONS);
   },
 };

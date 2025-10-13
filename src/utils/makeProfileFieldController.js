@@ -341,5 +341,55 @@ module.exports = function makeProfileFieldController(
       const sanitized = await this.sanitizeOutput(updated, ctx);
       return this.transformResponse(sanitized);
     },
+
+    // ---------- DELETE ----------
+    async delete(ctx) {
+      if (!ownerHasMany) {
+        return ctx.badRequest('Delete is only supported for collection-type relationships.');
+      }
+
+      const { id } = ctx.params;
+
+      // Validate that id is a direct numeric/uuid id (not email-based)
+      if (!id || typeof id !== 'string' || id.includes('=')) {
+        return ctx.badRequest('Delete requires a valid record ID.');
+      }
+
+      const agentId = ensureAgentId(ctx);
+
+      // Fetch the record to check ownership - populate profile and user within profile
+      const existing = await strapi.entityService.findOne(UID, id, {
+        populate: {
+          [ownerField]: {
+            populate: { user: true }
+          }
+        }
+      });
+
+      if (!existing) {
+        return ctx.notFound('Record not found.');
+      }
+
+      // Check ownership using the same pattern as findOne
+      const ownerId = extractOwnerId(existing, ownerField);
+      if (agentId !== ownerId) {
+        return ctx.forbidden('You do not have permission to delete this resource.');
+      }
+
+      // Delete the record - prefer Documents API if available
+      const documentId = existing.documentId;
+      let deleted;
+
+      if (documentId) {
+        deleted = await strapi.documents(UID).delete({
+          documentId,
+        });
+      } else {
+        deleted = await strapi.service(UID).delete(id);
+      }
+
+      const sanitized = await this.sanitizeOutput(deleted, ctx);
+      return this.transformResponse(sanitized);
+    },
   };
 }
