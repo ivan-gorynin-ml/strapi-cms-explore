@@ -1,0 +1,36 @@
+{
+  "kind": "collectionType",
+  "collectionName": "identity_documents",
+  "info": {
+    "singularName": "identity-document",
+    "pluralName": "identity-documents",
+    "displayName": "IdentityDocument"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "profile": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::profile.profile",
+      "inversedBy": "identity_document"
+    },
+    "type": {
+      "type": "string"
+    },
+    "number": {
+      "type": "string"
+    },
+    "issueDate": {
+      "type": "date"
+    },
+    "expiryDate": {
+      "type": "date"
+    },
+    "issuingAuthority": {
+      "type": "string"
+    }
+  }
+}

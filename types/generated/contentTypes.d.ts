@@ -505,6 +505,40 @@ export interface ApiEmergencyContactEmergencyContact
   };
 }
 
+export interface ApiIdentityDocumentIdentityDocument
+  extends Struct.CollectionTypeSchema {
+  collectionName: 'identity_documents';
+  info: {
+    displayName: 'IdentityDocument';
+    pluralName: 'identity-documents';
+    singularName: 'identity-document';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    expiryDate: Schema.Attribute.Date;
+    issueDate: Schema.Attribute.Date;
+    issuingAuthority: Schema.Attribute.String;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::identity-document.identity-document'
+    > &
+      Schema.Attribute.Private;
+    number: Schema.Attribute.String;
+    profile: Schema.Attribute.Relation<'oneToOne', 'api::profile.profile'>;
+    publishedAt: Schema.Attribute.DateTime;
+    type: Schema.Attribute.String;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
 export interface ApiPersonPerson extends Struct.CollectionTypeSchema {
   collectionName: 'people';
   info: {
@@ -559,6 +593,10 @@ export interface ApiProfileProfile extends Struct.CollectionTypeSchema {
     createdAt: Schema.Attribute.DateTime;
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
+    identity_document: Schema.Attribute.Relation<
+      'oneToOne',
+      'api::identity-document.identity-document'
+    >;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<
       'oneToMany',
@@ -1139,6 +1177,7 @@ declare module '@strapi/strapi' {
       'admin::user': AdminUser;
       'api::account-holder-profile.account-holder-profile': ApiAccountHolderProfileAccountHolderProfile;
       'api::emergency-contact.emergency-contact': ApiEmergencyContactEmergencyContact;
+      'api::identity-document.identity-document': ApiIdentityDocumentIdentityDocument;
       'api::person.person': ApiPersonPerson;
       'api::profile.profile': ApiProfileProfile;
       'api::user-general-info.user-general-info': ApiUserGeneralInfoUserGeneralInfo;
