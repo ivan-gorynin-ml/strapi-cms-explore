@@ -908,7 +908,7 @@ Authorization: Bearer <jwt_token>
 ### PUT /api/emergency-contacts/user=john.doe@mail.com
 
 #### Purpose
-Updates or creates emergency contacts for a user identified by their email address. **This endpoint supports bulk operations** with partial updates.
+Updates, creates, or deletes emergency contacts for a user identified by their email address. **This endpoint supports bulk operations** with partial updates, creation, and deletion in a single request.
 
 #### Request
 ```http
@@ -924,6 +924,10 @@ Content-Type: application/json
       "phone": "+1-555-9999"
     },
     {
+      "id": 302,
+      "delete": true
+    },
+    {
       "firstName": "Sarah",
       "lastName": "Johnson",
       "relationship": "Friend",
@@ -936,7 +940,7 @@ Content-Type: application/json
 
 #### Request Body Structure
 
-The body must contain a `data` field with an **array** of emergency contact objects. Each object represents either an update to an existing contact or a new contact to create.
+The body must contain a `data` field with an **array** of emergency contact objects. Each object represents either an update to an existing contact, a deletion, or a new contact to create.
 
 **Critical Point:** Unlike Person and IdentityDocument which accept a single object, EmergencyContact requires an **array** in the `data` field.
 
@@ -954,7 +958,7 @@ The API processes each item in the array according to these rules:
 
 #### Rule 1: Item with `id` field (Update Existing)
 
-If an element contains an `id` field, the API updates the existing contact:
+If an element contains an `id` field (without `delete: true`), the API updates the existing contact:
 
 **Behavior:**
 1. Finds the existing emergency contact by its `id`
@@ -977,7 +981,43 @@ If an element contains an `id` field, the API updates the existing contact:
 
 **Effect:** Updates only the phone number of contact #301, leaving firstName, lastName, relationship, and email unchanged.
 
-#### Rule 2: Item without `id` field (Create New)
+#### Rule 2: Item with `id` and `delete: true` (Delete Existing)
+
+If an element contains both an `id` field and `delete: true`, the API deletes the contact:
+
+**Behavior:**
+1. Validates that the item has an `id` (returns 400 Bad Request if missing)
+2. Finds the existing emergency contact by its `id`
+3. Verifies that the authenticated user owns this contact (via profile)
+4. Deletes the contact from the database
+5. Does not include the deleted item in the response
+
+**Example:**
+```json
+{
+  "data": [
+    {
+      "id": 302,
+      "delete": true
+    }
+  ]
+}
+```
+
+**Effect:** Deletes contact #302. The contact is permanently removed and will not appear in the response.
+
+**Error Handling:** If you specify `delete: true` without an `id`, you'll receive a 400 Bad Request error:
+```json
+{
+  "error": {
+    "status": 400,
+    "name": "BadRequestError",
+    "message": "Cannot delete item without an id"
+  }
+}
+```
+
+#### Rule 3: Item without `id` field (Create New)
 
 If an element does **not** contain an `id` field, the API creates a new contact:
 
@@ -1004,7 +1044,7 @@ If an element does **not** contain an `id` field, the API creates a new contact:
 
 **Effect:** Creates a new emergency contact with the provided information.
 
-### Complete Update Example
+### Complete Update Example with Mixed Operations
 
 #### Request
 ```http
@@ -1025,6 +1065,10 @@ Content-Type: application/json
       "email": "bob.updated@mail.com"
     },
     {
+      "id": 305,
+      "delete": true
+    },
+    {
       "firstName": "Emergency",
       "lastName": "Services",
       "relationship": "Hospital",
@@ -1038,7 +1082,8 @@ Content-Type: application/json
 **What happens:**
 - **Contact #301**: Updates only the phone number
 - **Contact #302**: Updates relationship and email, other fields unchanged
-- **Third item**: Creates a new emergency contact
+- **Contact #305**: Deleted (will not appear in response)
+- **Fourth item**: Creates a new emergency contact
 
 #### Response
 ```json
@@ -1073,8 +1118,8 @@ Content-Type: application/json
       }
     },
     {
-      "id": 303,
-      "documentId": "bcd303efg",
+      "id": 306,
+      "documentId": "bcd306efg",
       "attributes": {
         "firstName": "Emergency",
         "lastName": "Services",
@@ -1090,6 +1135,8 @@ Content-Type: application/json
   "meta": {}
 }
 ```
+
+**Note:** Contact #305 was deleted and does not appear in the response. Only updated and newly created contacts are returned.
 
 ### Common Use Cases
 
@@ -1149,13 +1196,45 @@ Content-Type: application/json
 }
 ```
 
-#### Use Case 4: Mixed Update and Create
+#### Use Case 4: Delete a Single Contact
+```json
+{
+  "data": [
+    {
+      "id": 302,
+      "delete": true
+    }
+  ]
+}
+```
+
+#### Use Case 5: Delete Multiple Contacts
+```json
+{
+  "data": [
+    {
+      "id": 301,
+      "delete": true
+    },
+    {
+      "id": 305,
+      "delete": true
+    }
+  ]
+}
+```
+
+#### Use Case 6: Mixed Update, Create, and Delete
 ```json
 {
   "data": [
     {
       "id": 301,
       "email": "jane.new@example.com"
+    },
+    {
+      "id": 302,
+      "delete": true
     },
     {
       "firstName": "New",
@@ -1175,16 +1254,25 @@ Content-Type: application/json
 3. **Authorization Check**: Verifies `ctx.state.user.id` matches the user
 4. **Profile Verification**: Ensures the user has a profile (creates if missing)
 5. **Array Validation**: Confirms `data` is an array, not a single object
-6. **Item Processing**: Iterates through each item in the array:
-   - **If item has `id`**: 
+6. **Delete Flag Processing**: Before validation, scans array for items with `delete: true`:
+   - Validates each has an `id` (returns 400 Bad Request if missing)
+   - Collects IDs to delete in a separate list
+   - Removes `id` and `delete` flags from items before validation
+7. **Item Processing**: Iterates through each item in the array:
+   - **If item has `id` and is marked for deletion**: 
+     - Finds existing contact by ID
+     - Verifies ownership via profile chain
+     - Deletes the contact using Documents API (or service API as fallback)
+     - Skips adding to response (deleted items are not returned)
+   - **If item has `id` (not marked for deletion)**: 
      - Finds existing contact by ID
      - Verifies ownership via profile chain
      - Performs partial update with Documents API
    - **If item has no `id`**:
      - Creates new contact with `profile: profileId`
      - Assigns all provided fields
-7. **Ownership Protection**: Strips out any `profile` field from payloads
-8. **Response**: Returns array of all processed contacts (updated and created)
+8. **Ownership Protection**: Strips out any `profile` field from payloads
+9. **Response**: Returns array of all processed contacts (updated and created, but not deleted)
 
 ### Ownership Protection
 
@@ -1216,322 +1304,7 @@ Typical values for the `relationship` field:
 - `"Lawyer"`
 - Or any custom relationship your application requires
 
-### DELETE /api/emergency-contacts/:id
-
-#### Purpose
-Deletes emergency contact(s) by ID. **This operation is only available for EmergencyContact** because it's the only content type with a one-to-many relationship.
-
-#### Two Deletion Patterns
-
-The DELETE endpoint supports two distinct patterns:
-
-1. **Pattern A: Direct ID Deletion** - Delete a single contact using its numeric/UUID ID
-2. **Pattern B: Email-Based Bulk Deletion** - Delete multiple contacts using email identifier with IDs in request body
-
-#### Pattern A: Delete Single Contact by Direct ID
-
-##### Request
-```http
-DELETE /api/emergency-contacts/301 HTTP/1.1
-Host: localhost:1337
-Authorization: Bearer <jwt_token>
-```
-
-##### What Happens Internally
-
-1. **ID Validation**: Confirms the ID is a direct numeric/UUID ID
-2. **Fetch Record**: Retrieves the emergency contact with profile and user populated
-3. **Ownership Check**: Verifies the authenticated user owns this contact via profile chain
-4. **Authorization**: Returns 403 if the contact belongs to another user
-5. **Deletion**: Removes the record using Documents API (or service API as fallback)
-6. **Response**: Returns the deleted contact data
-
-##### Response Structure
-```json
-{
-  "data": {
-    "id": 301,
-    "documentId": "pqr301stu",
-    "attributes": {
-      "firstName": "Jane",
-      "lastName": "Doe",
-      "relationship": "Spouse",
-      "phone": "+1-555-1111",
-      "email": "jane.doe@mail.com",
-      "createdAt": "2025-10-01T10:15:00.000Z",
-      "updatedAt": "2025-10-13T14:30:00.000Z",
-      "publishedAt": "2025-10-01T10:15:00.000Z"
-    }
-  },
-  "meta": {}
-}
-```
-
-#### Pattern B: Delete Multiple Contacts by Email
-
-##### Purpose
-Deletes multiple emergency contacts for a user identified by their email address. **This pattern enables efficient bulk deletion** with full ownership verification before any deletions occur.
-
-##### Request
-```http
-DELETE /api/emergency-contacts/user=john.doe@mail.com HTTP/1.1
-Host: localhost:1337
-Authorization: Bearer <jwt_token>
-Content-Type: application/json
-
-{
-  "data": [301, 302, 305]
-}
-```
-
-##### Request Body Structure
-
-The body must contain a `data` field with an **array** of IDs to delete. Supports two formats:
-
-**Format 1: Plain ID array (recommended)**
-```json
-{
-  "data": [301, 302, 305]
-}
-```
-
-**Format 2: Objects with id property**
-```json
-{
-  "data": [
-    {"id": 301},
-    {"id": 302},
-    {"id": 305}
-  ]
-}
-```
-
-##### What Happens Internally
-
-1. **Email Parsing**: Extracts `john.doe@mail.com` from the `user=` parameter
-2. **User Lookup**: Finds user by email with profile populated
-3. **Authorization Check**: Verifies `ctx.state.user.id` matches the user
-4. **Profile Verification**: Ensures the user has a profile
-5. **ID Extraction**: Collects all IDs from the request body (supports both formats)
-6. **Ownership Verification Phase**: 
-   - Fetches each record by ID with populated owner
-   - Verifies authenticated user owns ALL records
-   - **If ANY record fails verification, NO deletions occur** (atomic-like behavior)
-   - Returns 403 or 404 if any verification fails
-7. **Deletion Phase**: Only after all verifications pass
-   - Deletes each record using Documents API (or service API as fallback)
-   - Collects all deletion results
-8. **Response**: Returns array of all deleted records
-
-##### Complete Example: Bulk Deletion
-
-**Scenario:** User wants to remove multiple outdated emergency contacts at once.
-
-**Step 1:** Get current contacts and their IDs
-```http
-GET /api/emergency-contacts HTTP/1.1
-Authorization: Bearer <jwt_token>
-```
-
-**Response:**
-```json
-{
-  "data": [
-    {
-      "id": 301,
-      "attributes": {
-        "firstName": "Jane",
-        "relationship": "Ex-Spouse"
-      }
-    },
-    {
-      "id": 302,
-      "attributes": {
-        "firstName": "Old",
-        "relationship": "Former Colleague"
-      }
-    },
-    {
-      "id": 303,
-      "attributes": {
-        "firstName": "Bob",
-        "relationship": "Brother"
-      }
-    },
-    {
-      "id": 304,
-      "attributes": {
-        "firstName": "Alice",
-        "relationship": "Sister"
-      }
-    }
-  ]
-}
-```
-
-**Step 2:** Delete multiple contacts (keeping 303 and 304)
-```http
-DELETE /api/emergency-contacts/user=john.doe@mail.com HTTP/1.1
-Authorization: Bearer <jwt_token>
-Content-Type: application/json
-
-{
-  "data": [301, 302]
-}
-```
-
-**Response:**
-```json
-{
-  "data": [
-    {
-      "id": 301,
-      "documentId": "pqr301stu",
-      "attributes": {
-        "firstName": "Jane",
-        "lastName": "Doe",
-        "relationship": "Ex-Spouse",
-        "phone": "+1-555-1111",
-        "email": "jane.doe@mail.com",
-        "createdAt": "2025-10-01T10:15:00.000Z",
-        "updatedAt": "2025-10-13T14:30:00.000Z",
-        "publishedAt": "2025-10-01T10:15:00.000Z"
-      }
-    },
-    {
-      "id": 302,
-      "documentId": "vwx302yza",
-      "attributes": {
-        "firstName": "Old",
-        "lastName": "Contact",
-        "relationship": "Former Colleague",
-        "phone": "+1-555-2222",
-        "email": "old.contact@mail.com",
-        "createdAt": "2025-10-01T10:20:00.000Z",
-        "updatedAt": "2025-10-13T14:30:00.000Z",
-        "publishedAt": "2025-10-01T10:20:00.000Z"
-      }
-    }
-  ],
-  "meta": {}
-}
-```
-
-**Result:** Contacts #301 and #302 are deleted. Contacts #303 and #304 remain.
-
-#### Common Delete Use Cases
-
-##### Use Case 1: Remove Single Outdated Contact (Direct ID)
-```bash
-# Delete contact who is no longer available
-curl -X DELETE http://localhost:1337/api/emergency-contacts/305 \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-##### Use Case 2: Bulk Cleanup - Remove Multiple Contacts (Email-Based)
-```bash
-# Delete multiple contacts in one request
-curl -X DELETE http://localhost:1337/api/emergency-contacts/user=john.doe@mail.com \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "data": [301, 303, 305]
-  }'
-```
-
-##### Use Case 3: Replace a Contact (Direct ID)
-```bash
-# Step 1: Delete old contact
-curl -X DELETE http://localhost:1337/api/emergency-contacts/301 \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-
-# Step 2: Add new contact
-curl -X PUT http://localhost:1337/api/emergency-contacts/user=john.doe@mail.com \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "data": [{
-      "firstName": "New",
-      "lastName": "Contact",
-      "relationship": "Friend",
-      "phone": "+1-555-9999",
-      "email": "new@example.com"
-    }]
-  }'
-```
-
-##### Use Case 4: Frontend - Remove Multiple Contacts (Recommended: Email-Based)
-```javascript
-// Efficient bulk deletion in a single request
-const contactIdsToRemove = [301, 303, 305];
-
-await fetch(`http://localhost:1337/api/emergency-contacts/user=${userEmail}`, {
-  method: 'DELETE',
-  headers: {
-    'Authorization': `Bearer ${token}`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    data: contactIdsToRemove
-  })
-});
-```
-
-##### Use Case 5: Frontend - Remove Multiple Contacts (Alternative: Individual Requests)
-```javascript
-// Less efficient but works with direct IDs
-const contactIdsToRemove = [301, 303, 305];
-
-for (const contactId of contactIdsToRemove) {
-  await fetch(`http://localhost:1337/api/emergency-contacts/${contactId}`, {
-    method: 'DELETE',
-    headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  });
-}
-```
-
-##### Use Case 6: Complete Contact Management Flow
-```javascript
-// Get all contacts
-const response = await fetch('http://localhost:1337/api/emergency-contacts', {
-  headers: { 'Authorization': `Bearer ${token}` }
-});
-const { data: contacts } = await response.json();
-
-// Filter contacts to keep and to remove
-const contactsToKeep = contacts.filter(c => 
-  c.attributes.relationship !== "Ex-Spouse"
-);
-const idsToRemove = contacts
-  .filter(c => c.attributes.relationship === "Ex-Spouse")
-  .map(c => c.id);
-
-// Bulk delete unwanted contacts
-if (idsToRemove.length > 0) {
-  await fetch(`http://localhost:1337/api/emergency-contacts/user=${userEmail}`, {
-    method: 'DELETE',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ data: idsToRemove })
-  });
-}
-```
-
-#### Choosing Between Deletion Patterns
-
-| Scenario | Recommended Pattern | Reason |
-|----------|---------------------|--------|
-| Delete 1 contact | Direct ID | Simple, single request |
-| Delete 2+ contacts | Email-based bulk | Fewer requests, atomic verification |
-| Delete all contacts of type | Email-based bulk | Filter then bulk delete |
-| Integration with search | Direct ID | Use ID from search result |
-| Complex filtering logic | Email-based bulk | Filter in app, then bulk delete |
-
-#### Why Person and IdentityDocument Don't Support DELETE
+### Why Person and IdentityDocument Don't Support Deletion
 
 Person and IdentityDocument are **one-to-one** relationships with Profile:
 - Each profile has **at most one** Person record
@@ -1542,131 +1315,8 @@ Person and IdentityDocument are **one-to-one** relationships with Profile:
 EmergencyContact is **one-to-many**:
 - Each profile can have **multiple** contacts
 - Deleting individual contacts is necessary for management
-- DELETE is enabled only for this relationship type
-- **Supports both single deletion and bulk deletion**
-
-### Error Responses
-
-**400 Bad Request** - Invalid ID format or wrong content type (DELETE with direct ID):
-```json
-{
-  "error": {
-    "status": 400,
-    "name": "BadRequestError",
-    "message": "Delete requires a valid record ID."
-  }
-}
-```
-
-**400 Bad Request** - Missing or invalid data array (DELETE with email):
-```json
-{
-  "error": {
-    "status": 400,
-    "name": "BadRequestError",
-    "message": "Request body must contain a \"data\" array with IDs to delete."
-  }
-}
-```
-
-**400 Bad Request** - No valid IDs in array (DELETE with email):
-```json
-{
-  "error": {
-    "status": 400,
-    "name": "BadRequestError",
-    "message": "No valid IDs found in request body data array."
-  }
-}
-```
-
-**400 Bad Request** - Data is not an array (PUT requests):
-```json
-{
-  "error": {
-    "status": 400,
-    "name": "BadRequestError",
-    "message": "Data must be an array of updates"
-  }
-}
-```
-
-**403 Forbidden** - Attempting to delete another user's contact (direct ID):
-```json
-{
-  "error": {
-    "status": 403,
-    "name": "ForbiddenError",
-    "message": "You do not have permission to delete this resource."
-  }
-}
-```
-
-**403 Forbidden** - Attempting to delete another user's contact (email-based):
-```json
-{
-  "error": {
-    "status": 403,
-    "name": "ForbiddenError",
-    "message": "You do not own the record with id 301"
-  }
-}
-```
-
-**403 Forbidden** - Attempting to delete resources for different user (email-based):
-```json
-{
-  "error": {
-    "status": 403,
-    "name": "ForbiddenError",
-    "message": "You do not have permission to delete resources for this user."
-  }
-}
-```
-
-**403 Forbidden** - Attempting to update another user's contact:
-```json
-{
-  "error": {
-    "status": 403,
-    "name": "ForbiddenError",
-    "message": "You do not own the record with id 301"
-  }
-}
-```
-
-**404 Not Found** - Contact not found (direct ID):
-```json
-{
-  "error": {
-    "status": 404,
-    "name": "NotFoundError",
-    "message": "Record not found."
-  }
-}
-```
-
-**404 Not Found** - Contact not found in bulk deletion (email-based):
-```json
-{
-  "error": {
-    "status": 404,
-    "name": "NotFoundError",
-    "message": "Record with id 301 not found."
-  }
-}
-```
-
-**404 Not Found** - User not found (email-based operations):
-```json
-{
-  "error": {
-    "status": 404,
-    "name": "NotFoundError",
-    "message": "Owner with email \"invalid@example.com\" was not found."
-  }
-}
-```
+- Deletion is handled via the PUT endpoint using the `delete: true` flag
+- **Supports both single deletion and bulk deletion in update operations**
 
 ## Alternative Access Patterns
 
@@ -1678,7 +1328,6 @@ GET /api/profiles/123
 PUT /api/people/789
 PUT /api/identity-documents/234
 PUT /api/emergency-contacts/user=john.doe@mail.com
-DELETE /api/emergency-contacts/301
 ```
 
 When using numeric IDs:
@@ -1686,7 +1335,7 @@ When using numeric IDs:
 - The profile/person/identity-document/emergency-contacts must belong to the authenticated user
 - Returns 403 Forbidden if ownership check fails
 
-**Note:** For EmergencyContact bulk operations (updates or deletes), the email-based endpoint is preferred. Direct numeric IDs work for single-contact operations but require individual requests for each contact.
+**Note:** For EmergencyContact bulk operations (updates, creates, or deletes), the email-based endpoint is preferred as it allows managing multiple contacts in a single request.
 
 ### Standard REST Operations
 
@@ -1874,18 +1523,18 @@ The Profile, Person, IdentityDocument, and EmergencyContact APIs provide a secur
 | **Relationship** | 1:1 with Profile | 1:1 with Profile | 1:N with Profile |
 | **Request Body** | Single object | Single object | Array of objects |
 | **Use Case** | Personal details | ID verification | Emergency contacts |
-| **Update Pattern** | Replace/create one | Replace/create one | Bulk update/create |
+| **Update Pattern** | Replace/create one | Replace/create one | Bulk update/create/delete |
 | **Response** | Single record | Single record | Array of records |
-| **DELETE Support** | ❌ No | ❌ No | ✅ Yes (single & bulk) |
-| **DELETE Patterns** | N/A | N/A | Direct ID: `DELETE /api/emergency-contacts/:id`<br>Bulk: `DELETE /api/emergency-contacts/user=email` + body |
+| **Delete Support** | ❌ No | ❌ No | ✅ Yes (via `delete: true` flag) |
+| **Delete Method** | N/A | N/A | PUT with `delete: true` flag in item |
 
 ### EmergencyContact Special Features
 
-- **Bulk Operations**: Update or delete multiple contacts in a single request
-- **Mixed Operations**: Combine updates (items with `id`) and creates (items without `id`) in one PUT request
+- **Bulk Operations**: Update, create, or delete multiple contacts in a single request
+- **Mixed Operations**: Combine updates (items with `id`), creates (items without `id`), and deletes (items with `id` and `delete: true`) in one PUT request
 - **Array Processing**: Each item in the array is independently processed with ownership verification
-- **Single Deletion**: Delete specific contacts by direct ID using `DELETE /api/emergency-contacts/:id`
-- **Bulk Deletion**: Delete multiple contacts by email using `DELETE /api/emergency-contacts/user=email` with array of IDs in request body
-- **Atomic Verification**: For bulk deletes, all permissions verified before any deletion occurs
+- **Delete Flag**: Set `delete: true` on any item with an `id` to delete it
+- **Response Filtering**: Deleted items are not included in the response—only updated and created items are returned
+- **Error Handling**: Returns 400 Bad Request if `delete: true` is specified without an `id`
 - **Scalable**: Designed to handle users with many emergency contacts efficiently
 
