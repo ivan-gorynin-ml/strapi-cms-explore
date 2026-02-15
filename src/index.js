@@ -128,5 +128,7 @@ module.exports = {
     setAuthenticatedPermissions(strapi, 'api::person.person', FIND_UPDATE_ACTIONS);
     setAuthenticatedPermissions(strapi, 'api::identity-document.identity-document', FIND_UPDATE_ACTIONS);
     setAuthenticatedPermissions(strapi, 'api::emergency-contact.emergency-contact', FIND_NO_FINDONE_UPDATE_ACTIONS);
+
+    strapi.log.warn(`[upload-ext] provider=${strapi.config.get('plugin::upload.provider')}`);
   },
 };
