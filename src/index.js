@@ -1,5 +1,43 @@
 'use strict';
 
+/**
+ * Cloudinary health-check ping — runs once on bootstrap.
+ */
+async function cloudinaryPing(strapi) {
+  const cloudName = process.env.CLOUDINARY_NAME;
+  const apiKey = process.env.CLOUDINARY_KEY;
+  const apiSecret = process.env.CLOUDINARY_SECRET;
+
+  const missing = [];
+  if (!cloudName) missing.push('CLOUDINARY_NAME');
+  if (!apiKey) missing.push('CLOUDINARY_KEY');
+  if (!apiSecret) missing.push('CLOUDINARY_SECRET');
+
+  if (missing.length > 0) {
+    strapi.log.warn(
+      `[Cloudinary] Missing env vars: ${missing.join('/')}; skipping ping`
+    );
+    return;
+  }
+
+  try {
+    const cloudinary = require('cloudinary').v2;
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+    });
+
+    const res = await cloudinary.api.ping();
+    strapi.log.info(`[Cloudinary] Ping OK — status: ${res && res.status}`);
+  } catch (err) {
+    strapi.log.error(
+      `[Cloudinary] Ping FAILED — ${err.message}. Uploads may fail!`
+    );
+    strapi.log.error(`[Cloudinary] Stack: ${err.stack}`);
+  }
+}
+
 async function setAuthenticatedPermissions(strapi, uid, actions) {
   // 1) Get the Authenticated role
   const authenticatedRole = await strapi.db
@@ -76,7 +114,10 @@ module.exports = {
    * This gives you an opportunity to set up your data model,
    * run jobs, or perform some special logic.
    */
-  bootstrap(/*{ strapi }*/) {
+  async bootstrap(/*{ strapi }*/) {
+    // ── Cloudinary health check ──
+    await cloudinaryPing(strapi);
+
     // Grant Find and Update permissions to the Authenticated role
     const FIND_NO_FINDONE_ACTIONS = ['find'];
     const FIND_ACTIONS = [...FIND_NO_FINDONE_ACTIONS, 'findOne'];
